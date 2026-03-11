@@ -64,6 +64,40 @@ def inicializar_bd():
             cursor.execute("ALTER TABLE proyectos ADD COLUMN supervisor_id INTEGER")
         except: pass
         
+        # --- AGREGAR ESTO DENTRO DE inicializar_bd() ---
+        
+        # 1. Asegurar columna observaciones en seguimiento
+        try:
+            cursor.execute("ALTER TABLE seguimiento ADD COLUMN observaciones TEXT")
+        except sqlite3.OperationalError:
+            pass 
+
+        # 2. Nueva Tabla: Incidencias (Cabecera del requerimiento)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS incidencias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proyecto_id INTEGER,
+            tipo_requerimiento TEXT, 
+            fecha_reporte TEXT,
+            usuario_id INTEGER,
+            estado TEXT DEFAULT 'Pendiente', 
+            FOREIGN KEY (proyecto_id) REFERENCES proyectos (id) ON DELETE CASCADE)''')
+
+        # 3. Nueva Tabla: Detalles técnicos de piezas (Atributos de producción)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS detalles_piezas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            incidencia_id INTEGER,
+            descripcion TEXT, veta TEXT, no_veta TEXT, cantidad INTEGER,
+            ubicacion TEXT, material TEXT, tc_frontal TEXT, tc_posterior TEXT,
+            tc_derecho TEXT, tc_izquierdo TEXT, rotacion TEXT, observaciones TEXT,
+            FOREIGN KEY (incidencia_id) REFERENCES incidencias (id) ON DELETE CASCADE)''')
+
+        # 4. Nueva Tabla: Detalles de materiales (Cerrajería, accesorios, etc.)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS detalles_materiales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            incidencia_id INTEGER,
+            descripcion TEXT, cantidad INTEGER, observaciones TEXT,
+            FOREIGN KEY (incidencia_id) REFERENCES incidencias (id) ON DELETE CASCADE)''')
+        
         conn.commit()
 
 # --- GESTIÓN DE PROYECTOS ---
@@ -170,3 +204,60 @@ def obtener_datos_reporte(id_proyecto):
             FROM productos WHERE proyecto_id = ?
         """
         return pd.read_sql_query(query, conn, params=(id_proyecto,))
+    
+# =========================================================
+# SECCIÓN: GESTIÓN DE INCIDENCIAS (VERSION ACTUALIZADA)
+# =========================================================
+
+def registrar_incidencia_detallada(proy_id, tipo_inc, motivo, piezas, materiales, user_id):
+    """Guarda requerimientos separando piezas de materiales con su motivo."""
+    with conectar() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO incidencias (proyecto_id, tipo_requerimiento, categoria, fecha_reporte, usuario_id)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (proy_id, tipo_inc, motivo, date.today().isoformat(), user_id))
+        
+        inc_id = cursor.lastrowid
+        
+        if piezas:
+            for p in piezas:
+                cursor.execute('''
+                    INSERT INTO detalles_piezas (
+                        incidencia_id, descripcion, veta, no_veta, cantidad, ubicacion, 
+                        material, tc_frontal, tc_posterior, tc_derecho, tc_izquierdo, 
+                        rotacion, observaciones
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ''', (inc_id, p['descripcion'], p['veta'], p['no_veta'], p['cantidad'], 
+                      p['ubicacion'], p['material'], p['tc_frontal'], p['tc_posterior'], 
+                      p['tc_derecho'], p['tc_izquierdo'], p['rotacion'], p['observaciones']))
+        
+        if materiales:
+            for m in materiales:
+                cursor.execute('''
+                    INSERT INTO detalles_materiales (incidencia_id, descripcion, cantidad, observaciones)
+                    VALUES (?,?,?,?)
+                ''', (inc_id, m['descripcion'], m['cantidad'], m['observaciones']))
+        conn.commit()
+
+def obtener_incidencias_resumen():
+    query = "SELECT i.*, p.proyecto_text, u.nombre_real FROM incidencias i JOIN proyectos p ON i.proyecto_id = p.id JOIN usuarios u ON i.usuario_id = u.id ORDER BY i.id DESC"
+    with conectar() as conn:
+        return pd.read_sql_query(query, conn)
+
+def actualizar_estado_incidencia(inc_id, nuevo_estado):
+    """Cambia el estatus de la incidencia (Pendiente, Enviado, Atendido)."""
+    with conectar() as conn:
+        conn.execute("UPDATE incidencias SET estado=? WHERE id=?", (nuevo_estado, inc_id))
+        conn.commit()
+
+# --- NUEVA FUNCIÓN PARA LIMPIEZA DE PROYECTOS ---
+
+def borrar_productos_proyecto(proyecto_id):
+    """Elimina todos los productos de un proyecto para permitir re-importación."""
+    with conectar() as conn:
+        # Al borrar productos, la tabla 'seguimiento' se limpia sola por el ON DELETE CASCADE
+        conn.execute("DELETE FROM productos WHERE proyecto_id = ?", (proyecto_id,))
+        # Importante: Reiniciar el avance del proyecto
+        conn.execute("UPDATE proyectos SET avance = 0 WHERE id = ?", (proyecto_id,))
+        conn.commit()

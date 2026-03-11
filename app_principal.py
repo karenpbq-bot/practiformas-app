@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import timedelta, datetime, date
 from base_datos import *
-import seguimiento, ejecucion, login, usuarios  # <--- Asegúrate que diga 'usuarios' al final
+import seguimiento, ejecucion, login, usuarios, incidencias  # <--- Asegúrate que diga 'usuarios' al final
 import plotly.express as px
 
 st.set_page_config(layout="wide", page_title="Carpintería Pro V2")
@@ -36,15 +36,16 @@ with st.sidebar:
         st.session_state.id_p_sel = None
         st.rerun()
     
-    # Definir opciones base para todos
-    opciones = ["Seguimiento", "Gantt", "Usuarios"] 
+    # Definir opciones base para todos según tus nuevos nombres
+    opciones = ["Seguimiento", "Incidencias", "Gantt", "Usuarios"] 
     
     # Los Gerentes y Administradores ven además la gestión de proyectos
     if rol_usuario in ["Administrador", "Gerente"]:
         opciones.insert(0, "Proyectos")
         opciones.insert(1, "Crear Nuevo")
     
-    menu = st.sidebar.radio("Módulos", opciones)
+    # Mapeo de nombres visuales a nombres lógicos para el radio
+    menu = st.sidebar.radio("MENÚ PRINCIPAL", opciones)
     
     st.write("---")
     if st.button("🚪 Cerrar Sesión"):
@@ -58,11 +59,40 @@ if menu == "Proyectos":
         st.header("📂 Cartera de Proyectos")
         
         bus_cartera = st.text_input("🔍 Buscar proyecto o cliente...", key="bus_main_cartera")
+        
         df_cartera = obtener_proyectos(bus_cartera)
         
         if df_cartera.empty:
             st.info("No se encontraron proyectos activos.")
         
+        # --- ZONA DE LIMPIEZA MASIVA (Solo Admin/Gerente) ---
+        if st.session_state.rol in ["Administrador", "Gerente"]:
+            with st.expander("🗑️ Zona de Limpieza Masiva"):
+                st.warning("Esta acción eliminará TODOS los productos del proyecto para permitir una nueva carga.")
+                # Creamos la lista de opciones para este selector específico
+                dict_limpieza = {f"{r['proyecto_text']} — {r['cliente']}": r['id'] for _, r in df_cartera.iterrows()}
+                proy_a_vaciar = st.selectbox("Seleccione proyecto para vaciar:", ["Seleccione..."] + list(dict_limpieza.keys()), key="proy_vaciar_box")
+                
+                if st.button("⚠️ ELIMINAR TODOS LOS PRODUCTOS", type="secondary"):
+                    if proy_a_vaciar != "Seleccione...":
+                        id_v = dict_limpieza[proy_a_vaciar]
+                        borrar_productos_proyecto(id_v)
+                        st.success("✅ Productos eliminados. El avance del proyecto ha vuelto a 0%.")
+                        st.rerun()
+
+        # --- PEGAR AQUÍ EL NUEVO BLOQUE ---
+        if rol_usuario in ["Administrador", "Gerente"]:
+            # Creamos un diccionario local para este selectbox
+            opciones_limpieza = {f"{r['proyecto_text']} — {r['cliente']}": r['id'] for _, r in df_cartera.iterrows()}
+            with st.expander("🗑️ Zona de Limpieza Masiva"):
+                st.warning("Esta acción eliminará todos los productos del proyecto seleccionado.")
+                proy_a_vaciar = st.selectbox("Proyecto a vaciar:", ["Seleccione..."] + list(opciones_limpieza.keys()), key="vaciar_proy")
+                if st.button("⚠️ ELIMINAR TODOS LOS PRODUCTOS", type="secondary"):
+                    if proy_a_vaciar != "Seleccione...":
+                        id_v = opciones_limpieza[proy_a_vaciar]
+                        borrar_productos_proyecto(id_v)
+                        st.success("Productos eliminados correctamente.")
+                        st.rerun()
         for _, p in df_cartera.iterrows():
             # Obtener métricas desde base_datos.py
             total_unidades, total_ml = obtener_resumen_inventario(p['id'])
@@ -349,3 +379,6 @@ elif menu == "Gantt":
 elif menu == "Usuarios":
     # Eliminamos el IF de aquí para que Gerentes y Supervisores puedan entrar a ver su perfil
     usuarios.mostrar()
+
+elif menu == "Incidencias":
+    incidencias.mostrar()
