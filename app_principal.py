@@ -36,15 +36,13 @@ with st.sidebar:
         st.session_state.id_p_sel = None
         st.rerun()
     
-    # Definir opciones según ROL
-    opciones = ["Seguimiento", "Gantt"] 
+    # Definir opciones base para todos
+    opciones = ["Seguimiento", "Gantt", "Usuarios"] 
+    
+    # Los Gerentes y Administradores ven además la gestión de proyectos
     if rol_usuario in ["Administrador", "Gerente"]:
         opciones.insert(0, "Proyectos")
         opciones.insert(1, "Crear Nuevo")
-    
-    # NUEVO: Solo el Administrador ve este módulo
-    if rol_usuario == "Administrador":
-        opciones.append("Usuarios")
     
     menu = st.sidebar.radio("Módulos", opciones)
     
@@ -212,7 +210,7 @@ if menu == "Proyectos":
                 col_ex2.link_button("🟢 Enviar Resumen por WhatsApp", ws_link, use_container_width=True)
             else:
                 st.info("Agregue productos para habilitar la exportación.")
-                
+
         # --- TAB 2: CRONOGRAMA ---
         with t2:
             st.subheader("📅 Gantt Planificado")
@@ -349,8 +347,5 @@ elif menu == "Gantt":
     ejecucion.mostrar()
 
 elif menu == "Usuarios":
-    if st.session_state.rol == "Administrador":
-        import usuarios
-        usuarios.mostrar()
-    else:
-        st.error("Acceso restringido. Solo el Administrador puede gestionar usuarios.")
+    # Eliminamos el IF de aquí para que Gerentes y Supervisores puedan entrar a ver su perfil
+    usuarios.mostrar()
