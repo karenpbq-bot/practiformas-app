@@ -4,8 +4,19 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from base_datos import conectar, obtener_proyectos, obtener_gantt_real_data
 
+# =========================================================
+# SECCIÓN 1: CONFIGURACIÓN DE CRONOGRAMA (FUNCIONALIDAD ORIGINAL)
+# =========================================================
+ORDEN_ETAPAS = ["Diseño", "Fabricación", "Traslado", "Instalación", "Entrega"]
+
+COLORES_REALES = {
+    "Diseño": "#1ABC9C", "Fabricación": "#F39C12", 
+    "Traslado": "#9B59B6", "Instalación": "#2E86C1", "Entrega": "#27AE60"
+}
+
 def mostrar():
     st.header("📊 Cronograma Global de Ejecución")
+    supabase = conectar()
     
     # 1. CONFIGURACIÓN DE VISTA EN SIDEBAR
     with st.sidebar:
@@ -17,29 +28,28 @@ def mostrar():
     with st.container(border=True):
         bus = st.text_input("🔍 Buscar por Proyecto o Cliente...", placeholder="Ej: Casa")
         df_p = obtener_proyectos(bus)
+        
+        if df_p.empty:
+            st.info("No se encontraron proyectos activos."); return
+            
         dict_proy = {f"{r['proyecto_text']} — {r['cliente']}": r['id'] for _, r in df_p.iterrows()}
         
-    if not dict_proy:
-        st.info("No se encontraron proyectos activos."); return
-
     proyectos_sel = st.multiselect("Visualizar Proyectos:", 
                                     options=list(dict_proy.keys()), 
                                     default=list(dict_proy.keys())[:1])
 
     if proyectos_sel:
         data_final = []
-        ORDEN_ETAPAS = ["Diseño", "Fabricación", "Traslado", "Instalación", "Entrega"]
-        
-        COLORES_REALES = {
-            "Diseño": "#1ABC9C", "Fabricación": "#F39C12", 
-            "Traslado": "#9B59B6", "Instalación": "#2E86C1", "Entrega": "#27AE60"
-        }
         
         for p_nom in proyectos_sel:
             id_p = dict_proy[p_nom]
-            p_data = pd.read_sql_query("SELECT * FROM proyectos WHERE id=?", conectar(), params=(id_p,)).iloc[0]
             
-            # A. DATA PLANIFICADA (Solo si el switch está apagado)
+            # --- AJUSTE NUBE: Consulta directa a Supabase para evitar AttributeError ---
+            res_p = supabase.table("proyectos").select("*").eq("id", id_p).execute()
+            if not res_p.data: continue
+            p_data = res_p.data[0]
+            
+            # A. DATA PLANIFICADA (Lógica Original Preservada)
             if not solo_real:
                 map_cols = [
                     ("Diseño", 'p_dis_i', 'p_dis_f', "#EBEDEF"),
@@ -49,47 +59,46 @@ def mostrar():
                     ("Entrega", 'p_ent_i', 'p_ent_f', "#EBEDEF")
                 ]
                 for et, i_c, f_c, col in map_cols:
-                    if p_data[i_c] and p_data[f_c]:
+                    if p_data.get(i_c) and p_data.get(f_c):
                         data_final.append(dict(Proyecto=p_nom, Etapa=et, Inicio=p_data[i_c], Fin=p_data[f_c], Color=col, Tipo="Planificado"))
             
-            # B. DATA REAL
+            # B. DATA REAL (Lógica Original con manejo de fechas Nube)
             df_r = obtener_gantt_real_data(id_p)
             if not df_r.empty:
                 for _, row in df_r.iterrows():
-                    fin_real = row['Fin']
-                    # Intentamos procesar la fecha con seguridad
+                    # Lógica de procesamiento de fechas DD/MM/YYYY o ISO (Original)
                     try:
-                        # Convertimos a string por seguridad y limpiamos espacios
-                        str_fin = str(row['Fin']).strip()
-                        
-                        # Si la fecha viene como DD/MM/YYYY, la corregimos mentalmente para el sistema
+                        str_fin = str(row['fecha']).strip()
                         if "/" in str_fin:
                             fecha_dt = datetime.strptime(str_fin, '%d/%m/%Y')
                         else:
                             fecha_dt = datetime.strptime(str_fin, '%Y-%m-%d')
                         
-                        if row['Inicio'] == row['Fin']:
-                            fin_real = (fecha_dt + timedelta(days=1)).strftime('%Y-%m-%d')
-                        else:
-                            fin_real = fecha_dt.strftime('%Y-%m-%d')
+                        # Si es un solo hito, damos duración de 1 día para visibilidad (Original)
+                        inicio_real = fecha_dt.strftime('%Y-%m-%d')
+                        fin_real = (fecha_dt + timedelta(days=1)).strftime('%Y-%m-%d')
+                        
+                        # Mapeamos hitos de seguimiento a Etapas del Gantt
+                        # Buscamos coincidencias (Ej: 'Diseñado' pertenece a 'Diseño')
+                        etapa_match = next((et for et in ORDEN_ETAPAS if et[:4] in row['hito']), "Instalación")
+                        
+                        color_etapa = COLORES_REALES.get(etapa_match, "#2E86C1")
+                        data_final.append(dict(Proyecto=p_nom, Etapa=etapa_match, Inicio=inicio_real, Fin=fin_real, Color=color_etapa, Tipo="Real"))
                             
-                    except (ValueError, TypeError):
-                        # Si la fecha es un texto inválido o está vacía, evitamos que la app colapse
-                        fin_real = row['Fin']
-                    
-                    color_etapa = COLORES_REALES.get(row['Etapa'], "#2E86C1")
-                    data_final.append(dict(Proyecto=p_nom, Etapa=row['Etapa'], Inicio=row['Inicio'], Fin=fin_real, Color=color_etapa, Tipo="Real"))
+                    except Exception:
+                        continue
 
         if not data_final:
             st.warning("No hay datos para mostrar con los filtros seleccionados."); return
 
-        # ORDENAMIENTO FÍSICO PARA EVITAR EL GANTT INVERTIDO
+        # =========================================================
+        # SECCIÓN 3: GENERACIÓN DEL GRÁFICO (ESTRUCTURA ORIGINAL)
+        # =========================================================
         df_fig = pd.DataFrame(data_final)
         df_fig['Etapa'] = pd.Categorical(df_fig['Etapa'], categories=ORDEN_ETAPAS, ordered=True)
-        # Ordenamos descendente para que al aplicar 'reversed' en el eje Y, Diseño quede arriba
+        # Ordenamos descendente para que Diseño quede arriba (Original)
         df_fig = df_fig.sort_values(['Proyecto', 'Etapa'], ascending=[True, False])
         
-        # 3. GENERACIÓN DEL GRÁFICO
         fig = px.timeline(
             df_fig, 
             x_start="Inicio", 
@@ -102,7 +111,7 @@ def mostrar():
             category_orders={"Etapa": ORDEN_ETAPAS}
         )
 
-        # 4. AJUSTES FINALES DE DISEÑO
+        # 4. AJUSTES FINALES DE DISEÑO (Funcionalidad Original)
         fig.update_yaxes(
             categoryorder="array",
             categoryarray=ORDEN_ETAPAS,
@@ -112,18 +121,23 @@ def mostrar():
 
         fig.update_layout(
             barmode='group' if not solo_real else 'overlay',
-            height=160 * len(proyectos_sel), 
+            height=200 * len(proyectos_sel), 
             margin=dict(l=10, r=10, t=30, b=10),
             showlegend=False,
             bargap=0.1,
             font=dict(size=10)
         )
 
+        # Rejilla y línea de tiempo actual (Original)
         fig.update_xaxes(dtick="W1", tickformat="%d/%b", showgrid=True, gridcolor='LightGray', griddash='dot')
-        fig.add_vline(x=datetime.now().timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
+        
+        # Línea de fecha actual (Red Dash Line)
+        hoy_ts = datetime.now().timestamp() * 1000
+        fig.add_vline(x=hoy_ts, line_width=2, line_dash="dash", line_color="red")
 
         st.plotly_chart(fig, use_container_width=True)
         
-        # Leyenda de Colores
-
-        st.markdown("<p style='font-size: 11px; color: gray;'>🔴 Hoy | ⚪ Gris: Plan | 🎨 Colores: Real</p>", unsafe_allow_html=True)
+        # Leyenda de Colores Técnica
+        cols_ley = st.columns(len(COLORES_REALES))
+        for i, (et, col) in enumerate(COLORES_REALES.items()):
+            cols_ley[i].markdown(f"<p style='font-size:11px; color:{col};'>● {et}</p>", unsafe_allow_html=True)
