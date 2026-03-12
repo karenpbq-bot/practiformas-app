@@ -87,7 +87,8 @@ if menu == "Proyectos":
             with st.expander("🗑️ Zona de Limpieza Masiva"):
                 st.warning("Esta acción eliminará todos los productos del proyecto seleccionado.")
                 proy_a_vaciar = st.selectbox("Proyecto a vaciar:", ["Seleccione..."] + list(opciones_limpieza.keys()), key="vaciar_proy")
-                if st.button("⚠️ ELIMINAR TODOS LOS PRODUCTOS", type="secondary"):
+                # Añadimos key="btn_limpieza_masiva" para diferenciarlo de cualquier otro botón
+                if st.button("⚠️ ELIMINAR TODOS LOS PRODUCTOS", type="secondary", key="btn_limpieza_masiva"):
                     if proy_a_vaciar != "Seleccione...":
                         id_v = opciones_limpieza[proy_a_vaciar]
                         borrar_productos_proyecto(id_v)
