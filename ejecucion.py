@@ -57,8 +57,25 @@ def mostrar():
             if not df_r.empty:
                 for _, row in df_r.iterrows():
                     fin_real = row['Fin']
-                    if row['Inicio'] == row['Fin']:
-                        fin_real = (datetime.strptime(row['Fin'], '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+                    # Intentamos procesar la fecha con seguridad
+                    try:
+                        # Convertimos a string por seguridad y limpiamos espacios
+                        str_fin = str(row['Fin']).strip()
+                        
+                        # Si la fecha viene como DD/MM/YYYY, la corregimos mentalmente para el sistema
+                        if "/" in str_fin:
+                            fecha_dt = datetime.strptime(str_fin, '%d/%m/%Y')
+                        else:
+                            fecha_dt = datetime.strptime(str_fin, '%Y-%m-%d')
+                        
+                        if row['Inicio'] == row['Fin']:
+                            fin_real = (fecha_dt + timedelta(days=1)).strftime('%Y-%m-%d')
+                        else:
+                            fin_real = fecha_dt.strftime('%Y-%m-%d')
+                            
+                    except (ValueError, TypeError):
+                        # Si la fecha es un texto inválido o está vacía, evitamos que la app colapse
+                        fin_real = row['Fin']
                     
                     color_etapa = COLORES_REALES.get(row['Etapa'], "#2E86C1")
                     data_final.append(dict(Proyecto=p_nom, Etapa=row['Etapa'], Inicio=row['Inicio'], Fin=fin_real, Color=color_etapa, Tipo="Real"))
@@ -108,4 +125,5 @@ def mostrar():
         st.plotly_chart(fig, use_container_width=True)
         
         # Leyenda de Colores
+
         st.markdown("<p style='font-size: 11px; color: gray;'>🔴 Hoy | ⚪ Gris: Plan | 🎨 Colores: Real</p>", unsafe_allow_html=True)
