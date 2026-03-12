@@ -4,7 +4,7 @@ from datetime import datetime
 from base_datos import conectar, obtener_proyectos, actualizar_avance_real
 
 # =========================================================
-# 1. CONFIGURACIÓN Y DICCIONARIOS (FUNCIONALIDAD ORIGINAL)
+# 1. DICCIONARIOS MAESTROS (FUNCIONALIDAD ORIGINAL PRESERVADA)
 # =========================================================
 MAPEO_HITOS = {
     "Diseñado": "🗺️", 
@@ -29,21 +29,21 @@ LEYENDA_DETALLADA = {
 }
 
 def obtener_fecha_formateada():
-    """Retorna la fecha actual en formato texto DD/MM/YYYY para registro en DB."""
+    """Retorna la fecha actual en formato texto DD/MM/YYYY."""
     return datetime.now().strftime("%d/%m/%Y")
 
 # =========================================================
-# 2. LÓGICA DE PERSISTENCIA (SUPABASE - AJUSTE DIRECTO)
+# 2. LÓGICA DE PERSISTENCIA (SUPABASE - SIN CAMBIOS DE LÓGICA)
 # =========================================================
 def registrar_hitos_cascada(p_id, hito_final, fecha_str):
-    """Marca el hito actual y anteriores sin sobreescribir fechas previas (Nube)."""
+    """Marca el hito actual y anteriores preservando fechas previas (Lógica Original)."""
     supabase = conectar()
     hitos_orden = list(MAPEO_HITOS.keys())
     try:
         idx_limite = hitos_orden.index(hito_final)
         hitos_a_marcar = hitos_orden[:idx_limite + 1]
         for h in hitos_a_marcar:
-            # upsert asegura que no se dupliquen registros (producto_id, hito)
+            # upsert actúa como el "INSERT OR IGNORE" del código original
             supabase.table("seguimiento").upsert({
                 "producto_id": int(p_id), "hito": h, "fecha": fecha_str
             }, on_conflict="producto_id, hito").execute()
@@ -51,10 +51,10 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
         st.error(f"Error en cascada nube: {e}")
 
 # =========================================================
-# 3. INTERFAZ Y FILTROS DE TRIPLE CAPA (FUNCIONALIDAD ORIGINAL)
+# 3. INTERFAZ Y TRIPLE FILTRO (AUDITORÍA ORIGINAL)
 # =========================================================
 def mostrar(supervisor_id=None):
-    # Inyección de Estilos CSS Originales (Sticky y Scroll)
+    # Estilos CSS Originales (Sticky Header Naranja y Scroll Area)
     st.markdown("""
         <style>
         .header-fixed { position: sticky; top: 0; background: white; z-index: 1000; border-bottom: 2px solid #FF8C00; padding: 10px 0; font-weight: bold; }
@@ -88,7 +88,7 @@ def mostrar(supervisor_id=None):
     id_p = opciones[sel_p_nom]
     p_data = df_p[df_p['id'] == id_p].iloc[0]
 
-    # --- DATOS DEL PROYECTO ---
+    # --- FILTRO 2 Y 3: AGRUPACIÓN Y BÚSQUEDA DOBLE (RECUPERADOS DEL ORIGINAL) ---
     with st.container(border=True):
         d1, d2, d3, d4, d5 = st.columns([2, 1.5, 1, 1, 1.5])
         d1.write(f"**Proy:** {p_data['proyecto_text']}")
@@ -97,37 +97,39 @@ def mostrar(supervisor_id=None):
         prod_res = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
         prods_base = pd.DataFrame(prod_res.data)
         d3.write(f"**Cant:** {int(prods_base['ctd'].sum()) if not prods_base.empty else 0} Und")
-        d4.metric("Avance Total", f"{int(p_data['avance'])}%")
+        d4.write(f"**Avance:** {int(p_data['avance'])}%")
         fecha_avance = d5.date_input("📅 Fecha Registro", datetime.now())
 
-    # --- FILTRO 2 Y 3: FILTROS DE TRIPLE CAPA (Original) ---
     with st.expander("🛠️ Filtros de Producto (Agrupación y Búsqueda Doble)", expanded=False):
         f1, f2, f3, f4 = st.columns([1.2, 1.4, 1.4, 1])
         opciones_filtro = {"Sin grupo": None, "Ubicación": "ubicacion", "Tipo": "tipo"}
         label_agrupar = f1.selectbox("📂 Agrupar por:", list(opciones_filtro.keys()))
         columna_tecnica = opciones_filtro[label_agrupar]
         
-        bus_capa1 = f2.text_input("🔍 Filtro Primario:", placeholder="Ej: Zona...")
+        bus_capa1 = f2.text_input("🔍 Filtro Primario:", placeholder="Ej: Cocina...")
         bus_capa2 = f3.text_input("🔍 Refinar:", placeholder="Ej: Bajo...")
         solo_pendientes = f4.toggle("🔴 Solo pendientes", value=False)
         st.info("💡 **Guía:** " + " | ".join([f"{k} {v}" for k, v in LEYENDA_DETALLADA.items()]))
 
-    # =========================================================
-    # SECCIÓN 4: CARGA Y PROCESAMIENTO (SINCRO NUBE)
-    # =========================================================
+    # --- PROCESAMIENTO DE DATOS ---
     HITOS_LIST = list(MAPEO_HITOS.keys())
     prods = prods_base.copy()
     
     ids_list = prods['id'].tolist() if not prods.empty else []
     segs_res = supabase.table("seguimiento").select("*").in_("producto_id", ids_list).execute()
-    segs = pd.DataFrame(segs_res.data)
+    
+    # SOLUCIÓN AL KEYERROR: Inicializamos con columnas si está vacío
+    if not segs_res.data:
+        segs = pd.DataFrame(columns=['id', 'producto_id', 'hito', 'fecha', 'observaciones'])
+    else:
+        segs = pd.DataFrame(segs_res.data)
 
-    # Aplicación de filtros Triple Capa (Original)
+    # Aplicación de filtros de búsqueda originales
     if not prods.empty:
         if bus_capa1:
-            prods = prods[prods['ubicacion'].str.contains(bus_capa1, case=False) | prods['tipo'].str.contains(bus_capa1, case=False)]
+            prods = prods[prods['ubicacion'].astype(str).str.contains(bus_capa1, case=False) | prods['tipo'].astype(str).str.contains(bus_capa1, case=False)]
         if bus_capa2:
-            prods = prods[prods['ubicacion'].str.contains(bus_capa2, case=False) | prods['tipo'].str.contains(bus_capa2, case=False)]
+            prods = prods[prods['ubicacion'].astype(str).str.contains(bus_capa2, case=False) | prods['tipo'].astype(str).str.contains(bus_capa2, case=False)]
         if solo_pendientes:
             prods = prods[prods['id'].apply(lambda x: len(segs[segs['producto_id'] == x]) < 8)]
 
@@ -137,7 +139,7 @@ def mostrar(supervisor_id=None):
     es_jefe = st.session_state.rol in ['Administrador', 'Gerente']
 
     # =========================================================
-    # SECCIÓN 5: ACCIONES Y EXPORTACIÓN
+    # 4. PANEL DE ACCIONES (GUARDAR Y EXCEL)
     # =========================================================
     st.divider()
     c_m1, c_m2, c_m3 = st.columns([2, 1.5, 1.5])
@@ -151,47 +153,44 @@ def mostrar(supervisor_id=None):
                 "proyecto_id": id_p, "fecha": ahora.strftime("%d/%m/%Y"), 
                 "hora": ahora.strftime("%H:%M:%S"), "cerrado_por": st.session_state.get('id_usuario', 0)
             }).execute()
-            st.success("✅ Avance Guardado"); st.rerun()
+            st.success(f"✅ Guardado {ahora.strftime('%H:%M:%S')}"); st.rerun()
 
     with c_m3:
         import io
         output = io.BytesIO()
         df_excel = prods.copy()
         for h in HITOS_LIST:
-            df_excel[h] = df_excel['id'].apply(lambda x: segs[(segs['producto_id'] == x) & (segs['hito'] == h)]['fecha'].max() if not segs[(segs['producto_id'] == x) & (segs['hito'] == h)].empty else "")
+            # Lógica robusta para evitar el KeyError en el Excel
+            df_excel[h] = df_excel['id'].apply(lambda x: segs[(segs['producto_id'] == x) & (segs['hito'] == h)]['fecha'].max() if not segs.empty and not segs[(segs['producto_id'] == x) & (segs['hito'] == h)].empty else "")
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_excel.to_excel(writer, index=False, sheet_name='Avance')
-        st.download_button("📥 Exportar Avance", output.getvalue(), f"Avance_{p_data['proyecto_text']}.xlsx", use_container_width=True)
+        st.download_button("📥 Excel", output.getvalue(), f"Avance_{p_data['proyecto_text']}.xlsx", use_container_width=True)
 
     # =========================================================
-    # SECCIÓN 6: MATRIZ CRONOLÓGICA (STICKY HEADER)
-    # Recupera el encabezado original con botones de marcado masivo.
+    # 5. MATRIZ CRONOLÓGICA (STICKY HEADER Y RENDERIZADO)
     # =========================================================
     st.markdown('<div class="h-fix">', unsafe_allow_html=True)
     cols_h = st.columns([3] + [0.7]*8 + [2])
-    cols_h[0].write("B101 Producto ml")
+    cols_h[0].write("B101 Producto ml") # Título exacto del original
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
             if st.button("✅", key=f"bk_{hito}"):
                 for p_id in prods['id'].tolist(): registrar_hitos_cascada(p_id, hito, obtener_fecha_formateada())
                 actualizar_avance_real(id_p); st.rerun()
             st.write(MAPEO_HITOS[hito])
-    cols_h[-1].write("Nota")
+    cols_h[-1].write("Observaciones")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # =========================================================
-    # SECCIÓN 7: RENDERIZADO (CON AGRUPACIÓN Y SCROLL)
-    # =========================================================
     st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
     
     if columna_tecnica and not prods.empty:
         for nombre_grupo, items_grupo in prods.groupby(columna_tecnica):
             st.markdown(f"#### 📂 {nombre_grupo}")
             for _, prod in items_grupo.iterrows():
-                dibujar_fila_seguimiento(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p)
+                dibujar_fila(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p)
     else:
         for _, prod in prods.iterrows():
-            dibujar_fila_seguimiento(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p)
+            dibujar_fila(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -201,37 +200,38 @@ def mostrar(supervisor_id=None):
             st.rerun()
 
 # =========================================================
-# SECCIÓN 8: FUNCIÓN AUXILIAR DE FILA (LÓGICA ORIGINAL)
-# Mantiene identificación en una línea, bloqueos y desmarcado.
+# 6. FUNCIÓN DE FILA (FUNCIONALIDAD ORIGINAL INTEGRAL)
 # =========================================================
-def dibujar_fila_seguimiento(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p):
+def dibujar_fila(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p):
     cols = st.columns([3] + [0.7]*8 + [2])
-    # Identificación Original: **Ubicación** Tipo ml
+    # Identificación Original en una línea
     cols[0].markdown(f"**{prod['ubicacion']}** {prod['tipo']} `{prod['ml']} ml`", unsafe_allow_html=True)
     
     for i, hito in enumerate(HITOS_LIST):
         key_c = f"c_{prod['id']}_{hito}"
-        seg_match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
+        # Buscamos en el DataFrame segs (ahora seguro contra vacíos)
+        seg_match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)] if not segs.empty else pd.DataFrame()
         en_db = not seg_match.empty
         fecha_hito = seg_match['fecha'].iloc[0] if en_db else ""
 
-        # Lógica de Restricción Original
+        # Lógica de Bloqueo Original
         tiene_posterior = False
         if i < len(HITOS_LIST) - 1:
-            tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == HITOS_LIST[i+1])].empty
+            hito_post = HITOS_LIST[i+1]
+            tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito_post)].empty if not segs.empty else False
         
         bloqueo = (en_db and st.session_state.rol == "Supervisor") or (en_db and tiene_posterior)
 
         if cols[i+1].checkbox("Ok", key=key_c, value=en_db, label_visibility="collapsed", disabled=bloqueo, help=f"Fecha: {fecha_hito}"):
             if not en_db:
-                registrar_hitos_cascada(prod['id'], hito, datetime.now().strftime("%d/%m/%Y"))
+                registrar_hitos_cascada(prod['id'], hito, obtener_fecha_formateada())
                 actualizar_avance_real(id_p); st.rerun()
         elif en_db and not tiene_posterior and st.session_state.rol != "Supervisor":
             supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
             actualizar_avance_real(id_p); st.rerun()
     
-    # Observaciones (Original)
+    # Observaciones vinculadas a la nube
     obs_db = seg_match['observaciones'].iloc[0] if en_db and 'observaciones' in seg_match.columns else ""
-    new_obs = cols[-1].text_input("Nota", value=obs_db, key=f"o_{prod['id']}", label_visibility="collapsed")
+    new_obs = cols[-1].text_input("N", value=obs_db, key=f"o_{prod['id']}", label_visibility="collapsed")
     if new_obs != obs_db:
         supabase.table("seguimiento").update({"observaciones": new_obs}).eq("producto_id", prod['id']).eq("hito", hito).execute()
