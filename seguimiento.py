@@ -31,38 +31,31 @@ def obtener_fecha_formateada():
     """Retorna la fecha actual en formato texto DD/MM/YYYY."""
     return date.today().strftime("%d/%m/%Y")
 
+def obtener_fecha_formateada():
+    """Retorna la fecha actual en formato ISO para compatibilidad con SQL y Gantt."""
+    return date.today().strftime("%Y-%m-%d")
+
 def registrar_hitos_cascada(conn, p_id, hito_final, fecha_str):
-    """Marca el hito actual y todos los anteriores si están vacíos."""
+    """Marca el hito actual y anteriores sin sobreescribir fechas previas."""
     hitos_orden = list(MAPEO_HITOS.keys())
     try:
         idx_limite = hitos_orden.index(hito_final)
         hitos_a_marcar = hitos_orden[:idx_limite + 1]
+        
         for h in hitos_a_marcar:
-            # INSERT OR IGNORE para no sobreescribir fechas antiguas si ya existen
+            # INSERT OR IGNORE: Si el hito ya existe, no hace nada (preserva fecha original)
+            # Si no existe, lo crea con la fecha del movimiento actual
             conn.execute(
                 "INSERT OR IGNORE INTO seguimiento (producto_id, hito, fecha) VALUES (?,?,?)",
                 (p_id, h, fecha_str)
             )
-    except ValueError:
-        pass
+        conn.commit() 
+    except Exception as e:
+        st.error(f"Error en cascada: {e}")
 
 def obtener_fecha_formateada():
     """Retorna la fecha actual en formato texto DD/MM/YYYY."""
     return date.today().strftime("%d/%m/%Y")
-
-def registrar_hitos_cascada(conn, p_id, hito_final, fecha_str):
-    """Marca el hito actual y todos los anteriores si están vacíos."""
-    hitos_orden = list(MAPEO_HITOS.keys())
-    try:
-        idx_limite = hitos_orden.index(hito_final)
-        hitos_a_marcar = hitos_orden[:idx_limite + 1]
-        for h in hitos_a_marcar:
-            conn.execute(
-                "INSERT OR IGNORE INTO seguimiento (producto_id, hito, fecha) VALUES (?,?,?)",
-                (p_id, h, fecha_str)
-            )
-    except ValueError:
-        pass
 
 def mostrar(supervisor_id=None):
     # Estilos CSS para el encabezado fijo (Sticky) y área de scroll
@@ -262,10 +255,9 @@ def mostrar(supervisor_id=None):
                             p_id_imp = res[0]
                             for hito in MAPEO_HITOS.keys():
                                 valor = str(rx.get(hito, '')).strip().upper()
-                                # Solo registramos si la celda tiene una fecha/marca y NO es "NO"
+                                # Registra hito y activa cascada respetando fechas previas
                                 if valor != "" and valor != "NO" and valor != "NAN":
                                     registrar_hitos_cascada(conn, p_id_imp, hito, f_hoy)
-                                    actualizados += 1
                     
                     conn.execute("COMMIT")
                     # CRÍTICO: Recalcular y forzar lectura de base de datos
@@ -309,18 +301,32 @@ def mostrar(supervisor_id=None):
                 en_db = not seg_match.empty
                 fecha_hito = seg_match['fecha'].iloc[0] if en_db else ""
 
-                # Lógica: Supervisor no puede desmarcar (bloqueado si en_db es True), Admin/Gerente hace todo.
-                rol_actual = st.session_state.get('rol', 'Supervisor')
-                bloqueo_check = en_db and rol_actual == "Supervisor"
+                # --- LÓGICA DE RESTRICCIÓN DE DESMARCADO ---
+                tiene_posterior = False
+                if i < len(HITOS_LIST) - 1:
+                    hito_post = HITOS_LIST[i+1]
+                    # Verificamos si la siguiente etapa está marcada en la base de datos
+                    tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito_post)].empty
 
+                rol_actual = st.session_state.get('rol', 'Supervisor')
+                
+                # Bloqueo: 1. Si es Supervisor y ya está marcado. 2. Si intentas desmarcar habiendo etapas posteriores.
+                bloqueo_check = (en_db and rol_actual == "Supervisor") or (en_db and tiene_posterior)
+
+                # Renderizado del Checkbox
                 if cols[i+1].checkbox("Ok", key=key_c, value=en_db, label_visibility="collapsed", disabled=bloqueo_check, help=f"Fecha: {fecha_hito}"):
                     if not en_db:
                         f_now = obtener_fecha_formateada()
-                        with conectar() as conn: registrar_hitos_cascada(conn, prod['id'], hito, f_now)
-                        actualizar_avance_real(id_p); st.rerun()
-                elif en_db:
-                    with conectar() as conn: conn.execute("DELETE FROM seguimiento WHERE producto_id=? AND hito=?", (prod['id'], hito))
-                    actualizar_avance_real(id_p); st.rerun()
+                        with conectar() as conn_f:
+                            registrar_hitos_cascada(conn_f, prod['id'], hito, f_now)
+                        actualizar_avance_real(id_p)
+                        st.rerun()
+                elif en_db and not tiene_posterior:
+                    # Solo permite borrar si NO hay etapas posteriores marcadas
+                    with conectar() as conn: 
+                        conn.execute("DELETE FROM seguimiento WHERE producto_id=? AND hito=?", (prod['id'], hito))
+                    actualizar_avance_real(id_p)
+                    st.rerun()
             
             # Observaciones vinculadas a la DB
             obs_db = seg_match['observaciones'].iloc[0] if en_db and 'observaciones' in seg_match.columns else ""
