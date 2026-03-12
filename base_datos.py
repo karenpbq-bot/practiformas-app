@@ -61,6 +61,23 @@ def agregar_producto_manual(id_p, u, t, c, m):
     supabase = conectar()
     supabase.table("productos").insert({"proyecto_id": id_p, "ubicacion": u, "tipo": t, "ctd": c, "ml": m}).execute()
 
+def obtener_resumen_inventario(id_proyecto):
+    """Calcula la sumatoria de cantidades y metros lineales de un proyecto desde la nube."""
+    try:
+        supabase = conectar()
+        # Traemos solo las columnas necesarias para ahorrar ancho de banda
+        res = supabase.table("productos").select("ctd, ml").eq("proyecto_id", id_proyecto).execute()
+        
+        if res.data:
+            df = pd.DataFrame(res.data)
+            total_ctd = df['ctd'].sum()
+            total_ml = df['ml'].sum()
+            return total_ctd, total_ml
+        return 0, 0
+    except Exception as e:
+        # En caso de error, devolvemos ceros para que la app no colapse
+        return 0, 0
+
 def actualizar_avance_real(id_p):
     supabase = conectar()
     prods = supabase.table("productos").select("id").eq("proyecto_id", id_p).execute()
@@ -70,7 +87,7 @@ def actualizar_avance_real(id_p):
     segs = supabase.table("seguimiento").select("id").in_("producto_id", ids).execute()
     nuevo_avance = (len(segs.data) / (total * 8)) * 100
     supabase.table("proyectos").update({"avance": nuevo_avance}).eq("id", id_p).execute()
-
+    
 def obtener_gantt_real_data(id_p):
     supabase = conectar()
     prods = supabase.table("productos").select("id").eq("proyecto_id", id_p).execute()
@@ -106,3 +123,4 @@ def obtener_incidencias_resumen():
         df['proyecto_text'] = df['proyectos'].apply(lambda x: x['proyecto_text'] if x else "")
         df['nombre_real'] = df['usuarios'].apply(lambda x: x['nombre_real'] if x else "")
     return df
+
