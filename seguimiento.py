@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import datetime
 from base_datos import conectar, obtener_proyectos, actualizar_avance_real
 
 # =========================================================
-# 1. CONFIGURACIÓN Y DICCIONARIOS MAESTROS
+# SECCIÓN 1: CONFIGURACIÓN Y MAPEO DE HITOS
+# Define los iconos y descripciones de cada etapa del proceso.
 # =========================================================
 MAPEO_HITOS = {
     "Diseñado": "🗺️", 
@@ -30,10 +31,11 @@ LEYENDA_DETALLADA = {
 
 def obtener_fecha_formateada():
     """Retorna la fecha actual en formato texto DD/MM/YYYY para registro en DB."""
-    return date.today().strftime("%d/%m/%Y")
+    return datetime.now().strftime("%d/%m/%Y")
 
 # =========================================================
-# 2. LÓGICA DE PERSISTENCIA EN NUBE (AJUSTE SUPABASE)
+# SECCIÓN 2: LÓGICA DE PERSISTENCIA (SUPABASE)
+# Maneja la escritura en cascada y actualización de hitos en la nube.
 # =========================================================
 def registrar_hitos_cascada(p_id, hito_final, fecha_str):
     """Marca el hito actual y anteriores en la nube preservando fechas previas."""
@@ -44,7 +46,7 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
         hitos_a_marcar = hitos_orden[:idx_limite + 1]
         
         for h in hitos_a_marcar:
-            # Upsert en Supabase: Si no existe lo crea, si existe no hace nada (on_conflict)
+            # Upsert en Supabase: Evita duplicados por producto_id e hito.
             supabase.table("seguimiento").upsert({
                 "producto_id": int(p_id), 
                 "hito": h, 
@@ -55,7 +57,8 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
         st.error(f"Error en cascada nube: {e}")
 
 # =========================================================
-# 3. INTERFAZ Y FILTROS DE TRIPLE CAPA
+# SECCIÓN 3: INTERFAZ Y FILTROS DE SELECCIÓN
+# Control de búsqueda de proyectos y filtros de triple capa.
 # =========================================================
 def mostrar(supervisor_id=None):
     st.markdown("""
@@ -68,7 +71,7 @@ def mostrar(supervisor_id=None):
     st.header("📈 Panel de Seguimiento Matricial")
     supabase = conectar()
 
-    # --- SECCIÓN: BÚSQUEDA Y SELECCIÓN DE PROYECTO ---
+    # --- BÚSQUEDA DE PROYECTO ---
     with st.container(border=True):
         c1, c2, c3 = st.columns([2, 2, 1])
         bus_p = c1.text_input("🔍 Buscar proyecto o cliente...", key="bus_seg_proy")
@@ -90,39 +93,42 @@ def mostrar(supervisor_id=None):
     id_p = opciones[sel_p_nom]
     p_data = df_p[df_p['id'] == id_p].iloc[0]
 
-    # --- SECCIÓN: DATOS GENERALES Y FILTROS ---
+    # --- DATOS GENERALES Y FILTROS DE PRODUCTO ---
     with st.container(border=True):
         d1, d2, d3, d4, d5 = st.columns([2, 1.5, 1, 1, 1.5])
         d1.write(f"**Proy:** {p_data['proyecto_text']}")
         d2.write(f"**Cli:** {p_data['cliente']}")
         
-        # Carga de productos para métricas
         prod_res = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
         prods_base = pd.DataFrame(prod_res.data)
         
         d3.write(f"**Cant:** {int(prods_base['ctd'].sum()) if not prods_base.empty else 0} Und")
         d4.write(f"**Avance:** {int(p_data['avance'])}%")
-        fecha_avance = d5.date_input("📅 Fecha Registro", date.today())
+        fecha_avance = d5.date_input("📅 Fecha Registro", datetime.now())
 
-    with st.expander("🛠️ Filtros de Producto", expanded=False):
+    with st.expander("🛠️ Filtros y Agrupación", expanded=False):
         f1, f2, f3, f4 = st.columns([1.2, 1.4, 1.4, 1])
+        
+        opciones_filtro = {"Sin grupo": None, "Ubicación": "ubicacion", "Tipo": "tipo"}
+        label_agrupar = f1.selectbox("📂 Agrupar por:", list(opciones_filtro.keys()))
+        columna_tecnica = opciones_filtro[label_agrupar]
+        
         bus_capa1 = f2.text_input("🔍 Filtro Primario:", placeholder="Zona...")
         bus_capa2 = f3.text_input("🔍 Refinar:", placeholder="Tipo...")
         solo_pendientes = f4.toggle("🔴 Solo pendientes", value=False)
         st.info("💡 **Guía:** " + " | ".join([f"{k} {v}" for k, v in LEYENDA_DETALLADA.items()]))
 
     # =========================================================
-    # 4. CARGA DE DATOS FRESH (NUBE)
+    # SECCIÓN 4: PROCESAMIENTO DE DATOS Y FILTRADO
+    # Carga la información de hitos y aplica los filtros de búsqueda.
     # =========================================================
     HITOS_LIST = list(MAPEO_HITOS.keys())
     prods = prods_base.copy()
     
-    # Carga de seguimientos existentes
     ids_list = prods['id'].tolist() if not prods.empty else []
     segs_res = supabase.table("seguimiento").select("*").in_("producto_id", ids_list).execute()
     segs = pd.DataFrame(segs_res.data)
 
-    # Aplicación de filtros Triple Capa
     if not prods.empty:
         if bus_capa1:
             prods = prods[prods['ubicacion'].str.contains(bus_capa1, case=False) | prods['tipo'].str.contains(bus_capa1, case=False)]
@@ -131,13 +137,14 @@ def mostrar(supervisor_id=None):
         if solo_pendientes:
             prods = prods[prods['id'].apply(lambda x: len(segs[segs['producto_id'] == x]) < 8)]
 
-    # Verificación de cierre/bloqueo
+    # Verificación de candado (Cierres previos)
     cierre_res = supabase.table("cierres_diarios").select("*").eq("proyecto_id", id_p).eq("fecha", fecha_avance.strftime("%d/%m/%Y")).execute()
     esta_guardado = len(cierre_res.data) > 0
     es_jefe = st.session_state.get('rol') in ['Administrador', 'Gerente']
 
     # =========================================================
-    # 5. PANEL DE CONTROL (BOTONES Y EXPORTACIÓN)
+    # SECCIÓN 5: BOTONES DE ACCIÓN (GUARDAR Y EXPORTAR)
+    # Ejecuta el registro de fecha/hora automática y exporta a Excel.
     # =========================================================
     st.divider()
     c_m1, c_m2, c_m3 = st.columns([2, 1.5, 1.5])
@@ -146,10 +153,16 @@ def mostrar(supervisor_id=None):
     with c_m2:
         if st.button("💾 Guardar Avance", use_container_width=True, type="primary"):
             actualizar_avance_real(id_p)
-            supabase.table("cierres_diarios").upsert({
-                "proyecto_id": id_p, "fecha": obtener_fecha_formateada(), "cerrado_por": st.session_state.get('id_usuario', 0)
+            ahora = datetime.now()
+            # Registro con fecha y hora automática para múltiples entradas diarias
+            supabase.table("cierres_diarios").insert({
+                "proyecto_id": id_p, 
+                "fecha": ahora.strftime("%d/%m/%Y"), 
+                "hora": ahora.strftime("%H:%M:%S"),
+                "cerrado_por": st.session_state.get('id_usuario', 0)
             }).execute()
-            st.success("✅ Guardado"); st.rerun()
+            st.success(f"✅ Avance registrado a las {ahora.strftime('%H:%M:%S')}")
+            st.rerun()
 
     with c_m3:
         import io
@@ -162,7 +175,8 @@ def mostrar(supervisor_id=None):
         st.download_button("📥 Excel", output.getvalue(), f"Avance_{p_data['proyecto_text']}.xlsx", use_container_width=True)
 
     # =========================================================
-    # 6. MATRIZ DE SEGUIMIENTO (STICKY HEADER Y FILAS)
+    # SECCIÓN 6: MATRIZ DE SEGUIMIENTO (VISUALIZACIÓN Y CLICKS)
+    # Renderizado de filas agrupadas o simples con control de bloqueos.
     # =========================================================
     st.markdown("""<style>.h-fix { position: sticky; top: 0; background: white; z-index: 10; border-bottom: 2px solid #FF8C00; padding: 5px 0; font-weight: bold; }</style>""", unsafe_allow_html=True)
     st.markdown('<div class="h-fix">', unsafe_allow_html=True)
@@ -178,34 +192,16 @@ def mostrar(supervisor_id=None):
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
-    for _, prod in prods.iterrows():
-        with st.container():
-            cols = st.columns([3] + [0.7]*8 + [2])
-            cols[0].markdown(f"**{prod['ubicacion']}** {prod['tipo']} `{prod['ml']} ml`", unsafe_allow_html=True)
-            
-            for i, hito in enumerate(HITOS_LIST):
-                key_c = f"c_{prod['id']}_{hito}"
-                seg_match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
-                en_db = not seg_match.empty
-                
-                tiene_posterior = False
-                if i < len(HITOS_LIST) - 1:
-                    tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == HITOS_LIST[i+1])].empty
-
-                bloqueo_check = (en_db and st.session_state.rol == "Supervisor") or (en_db and tiene_posterior)
-
-                if cols[i+1].checkbox("Ok", key=key_c, value=en_db, label_visibility="collapsed", disabled=bloqueo_check):
-                    if not en_db:
-                        registrar_hitos_cascada(prod['id'], hito, obtener_fecha_formateada())
-                        actualizar_avance_real(id_p); st.rerun()
-                elif en_db and not tiene_posterior and not (st.session_state.rol == "Supervisor"):
-                    supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
-                    actualizar_avance_real(id_p); st.rerun()
-            
-            obs_db = seg_match['observaciones'].iloc[0] if en_db and 'observaciones' in seg_match.columns else ""
-            new_obs = cols[-1].text_input("N", value=obs_db, key=f"o_{prod['id']}", label_visibility="collapsed")
-            if new_obs != obs_db:
-                supabase.table("seguimiento").update({"observaciones": new_obs}).eq("producto_id", prod['id']).execute()
+    
+    # Lógica de renderizado con o sin agrupación
+    if columna_tecnica and not prods.empty:
+        for nombre_grupo, items_grupo in prods.groupby(columna_tecnica):
+            st.markdown(f"#### 📂 {nombre_grupo}")
+            for _, prod in items_grupo.iterrows():
+                dibujar_fila(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p)
+    else:
+        for _, prod in prods.iterrows():
+            dibujar_fila(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -213,3 +209,36 @@ def mostrar(supervisor_id=None):
         if st.button("🔓 Reabrir Reporte", use_container_width=True):
             supabase.table("cierres_diarios").delete().eq("proyecto_id", id_p).eq("fecha", fecha_avance.strftime("%d/%m/%Y")).execute()
             st.rerun()
+
+# =========================================================
+# SECCIÓN 7: FUNCIÓN AUXILIAR DE FILA
+# Construye cada fila individual con su lógica de marcado y notas.
+# =========================================================
+def dibujar_fila(prod, segs, HITOS_LIST, MAPEO_HITOS, supabase, id_p):
+    """Renderiza una fila individual de la matriz."""
+    cols = st.columns([3] + [0.7]*8 + [2])
+    cols[0].markdown(f"**{prod['ubicacion']}** {prod['tipo']} `{prod['ml']} ml`", unsafe_allow_html=True)
+    
+    for i, hito in enumerate(HITOS_LIST):
+        key_c = f"c_{prod['id']}_{hito}"
+        seg_match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
+        en_db = not seg_match.empty
+        
+        tiene_posterior = False
+        if i < len(HITOS_LIST) - 1:
+            tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == HITOS_LIST[i+1])].empty
+        
+        bloqueo = (en_db and st.session_state.rol == "Supervisor") or (en_db and tiene_posterior)
+
+        if cols[i+1].checkbox("Ok", key=key_c, value=en_db, label_visibility="collapsed", disabled=bloqueo):
+            if not en_db:
+                registrar_hitos_cascada(prod['id'], hito, datetime.now().strftime("%d/%m/%Y"))
+                actualizar_avance_real(id_p); st.rerun()
+        elif en_db and not tiene_posterior and st.session_state.rol != "Supervisor":
+            supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
+            actualizar_avance_real(id_p); st.rerun()
+    
+    obs_db = seg_match['observaciones'].iloc[0] if en_db and 'observaciones' in seg_match.columns else ""
+    new_obs = cols[-1].text_input("N", value=obs_db, key=f"o_{prod['id']}", label_visibility="collapsed")
+    if new_obs != obs_db:
+        supabase.table("seguimiento").update({"observaciones": new_obs}).eq("producto_id", prod['id']).execute()
