@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from base_datos import conectar, obtener_proyectos, obtener_gantt_real_data
 
 # =========================================================
-# SECCIÓN 1: CONFIGURACIÓN Y CONSTANTES (ORIGINAL)
-# Mantiene los colores y el orden de etapas del diseño inicial.
+# SECCIÓN 1: CONFIGURACIÓN Y CONSTANTES (FUNCIONALIDAD ORIGINAL)
+# Mantiene el orden estricto de etapas para evitar la inversión del gráfico.
 # =========================================================
 ORDEN_ETAPAS = ["Diseño", "Fabricación", "Traslado", "Instalación", "Entrega"]
 
@@ -49,7 +49,7 @@ def mostrar():
         for p_nom in proyectos_sel:
             id_p = dict_proy[p_nom]
             
-            # --- CONSULTA NUBE: Recupera datos del proyecto ---
+            # --- CONSULTA NUBE: Recupera datos del proyecto (Sin errores de conexión) ---
             res_p = supabase.table("proyectos").select("*").eq("id", id_p).execute()
             if not res_p.data: continue
             p_data = res_p.data[0]
@@ -64,27 +64,24 @@ def mostrar():
                     ("Entrega", 'p_ent_i', 'p_ent_f', "#EBEDEF")
                 ]
                 for et, i_c, f_c, col in map_cols:
-                    # Validamos que existan fechas de planificación
                     if p_data.get(i_c) and p_data.get(f_c):
                         data_final.append(dict(
                             Proyecto=p_nom, Etapa=et, Inicio=p_data[i_c], 
                             Fin=p_data[f_c], Color=col, Tipo="Planificado"
                         ))
             
-            # B. DATA REAL (Basada en los hitos de Seguimiento en Nube)
+            # B. DATA REAL (Lógica de Seguimiento de Nube)
             df_r = obtener_gantt_real_data(id_p)
             if not df_r.empty:
                 for _, row in df_r.iterrows():
                     try:
-                        # Procesamiento inteligente de fechas (ISO o DD/MM/YYYY)
                         str_f = str(row['fecha']).strip()
                         fecha_dt = datetime.strptime(str_f, '%d/%m/%Y') if "/" in str_f else datetime.strptime(str_f, '%Y-%m-%d')
                         
                         inicio_real = fecha_dt.strftime('%Y-%m-%d')
-                        # Se le da 1 día de duración mínima para que la barra sea visible
                         fin_real = (fecha_dt + timedelta(days=1)).strftime('%Y-%m-%d')
                         
-                        # Mapeo: Detectamos a qué etapa pertenece el hito (ej: 'Fabricado' -> 'Fabricación')
+                        # Mapeo inteligente de hitos a etapas del Gantt
                         et_match = next((et for et in ORDEN_ETAPAS if et[:4].lower() in row['hito'].lower()), "Instalación")
                         
                         data_final.append(dict(
@@ -97,11 +94,15 @@ def mostrar():
             st.warning("No hay datos para mostrar con los filtros seleccionados."); return
 
         # =========================================================
-        # SECCIÓN 3: GENERACIÓN DEL GRÁFICO (RESTAURACIÓN ORIGINAL)
+        # SECCIÓN 3: GENERACIÓN DEL GRÁFICO (RESTAURACIÓN DE ORDEN)
+        # Aquí se incluye la lógica que evita la inversión de etapas.
         # =========================================================
         df_fig = pd.DataFrame(data_final)
+        
+        # DEFINICIÓN DE CATEGORÍA ORDENADA (Evita inversión de eje Y)
         df_fig['Etapa'] = pd.Categorical(df_fig['Etapa'], categories=ORDEN_ETAPAS, ordered=True)
-        # Ordenamos para asegurar que 'Diseño' aparezca primero
+        
+        # ORDENAMIENTO FÍSICO DEL DATAFRAME
         df_fig = df_fig.sort_values(['Proyecto', 'Etapa'], ascending=[True, False])
         
         fig = px.timeline(
@@ -110,18 +111,24 @@ def mostrar():
             color_discrete_map="identity", category_orders={"Etapa": ORDEN_ETAPAS}
         )
 
-        # 4. AJUSTES VISUALES (Original)
-        fig.update_yaxes(autorange="reversed", showgrid=True)
+        # AJUSTES DE DISEÑO ORIGINALES
+        fig.update_yaxes(
+            categoryorder="array",
+            categoryarray=ORDEN_ETAPAS,
+            autorange="reversed", # FORZA DISEÑO ARRIBA
+            showgrid=True
+        )
+
         fig.update_layout(
-            barmode='overlay', # Superpone ejecución sobre plan
+            barmode='overlay', # Mantiene la superposición Planificado vs Real
             height=200 * len(proyectos_sel), 
             margin=dict(l=10, r=10, t=30, b=10),
             showlegend=False,
             bargap=0.1
         )
 
-        # Línea roja vertical para marcar el día de hoy
-        fig.add_vline(x=datetime.now().timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
+        # Cuadrícula semanal y línea roja de fecha actual
         fig.update_xaxes(dtick="W1", tickformat="%d/%b", showgrid=True, gridcolor='LightGray', griddash='dot')
+        fig.add_vline(x=datetime.now().timestamp() * 1000, line_width=2, line_dash="dash", line_color="red")
 
         st.plotly_chart(fig, use_container_width=True)
