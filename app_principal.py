@@ -66,21 +66,6 @@ if menu == "Proyectos":
             st.info("No se encontraron proyectos activos.")
         
         # --- ZONA DE LIMPIEZA MASIVA (Solo Admin/Gerente) ---
-        if st.session_state.rol in ["Administrador", "Gerente"]:
-            with st.expander("🗑️ Zona de Limpieza Masiva"):
-                st.warning("Esta acción eliminará TODOS los productos del proyecto para permitir una nueva carga.")
-                # Creamos la lista de opciones para este selector específico
-                dict_limpieza = {f"{r['proyecto_text']} — {r['cliente']}": r['id'] for _, r in df_cartera.iterrows()}
-                proy_a_vaciar = st.selectbox("Seleccione proyecto para vaciar:", ["Seleccione..."] + list(dict_limpieza.keys()), key="proy_vaciar_box")
-                
-                if st.button("⚠️ ELIMINAR TODOS LOS PRODUCTOS", type="secondary"):
-                    if proy_a_vaciar != "Seleccione...":
-                        id_v = dict_limpieza[proy_a_vaciar]
-                        borrar_productos_proyecto(id_v)
-                        st.success("✅ Productos eliminados. El avance del proyecto ha vuelto a 0%.")
-                        st.rerun()
-
-        # --- PEGAR AQUÍ EL NUEVO BLOQUE ---
         if rol_usuario in ["Administrador", "Gerente"]:
             # Creamos un diccionario local para este selectbox
             opciones_limpieza = {f"{r['proyecto_text']} — {r['cliente']}": r['id'] for _, r in df_cartera.iterrows()}
@@ -382,4 +367,5 @@ elif menu == "Usuarios":
     usuarios.mostrar()
 
 elif menu == "Incidencias":
+
     incidencias.mostrar()
