@@ -65,36 +65,11 @@ def registrar_hitos_cascada(conn, p_id, hito_final, fecha_str):
         pass
 
 def mostrar(supervisor_id=None):
-    # --- AJUSTE DE INTERFAZ MÓVIL (MANTENER MATRIZ) ---
+    # Estilos CSS para el encabezado fijo (Sticky) y área de scroll
     st.markdown("""
         <style>
-        /* Forzar que las columnas no se apilen en celulares */
-        [data-testid="column"] {
-            min-width: 45px !important;
-            flex-basis: auto !important;
-            flex-grow: 1 !important;
-        }
-        /* Contenedor con scroll horizontal para la tabla */
-        .tabla-movil {
-            overflow-x: auto;
-            white-space: nowrap;
-            border-radius: 8px;
-            padding: 5px;
-        }
-        /* Encabezado fijo (Sticky) corregido */
-        .h-fix { 
-            position: sticky; 
-            top: 0; 
-            background-color: #f8f9fa; 
-            z-index: 99; 
-            border-bottom: 2px solid #FF8C00;
-            padding: 8px 0;
-        }
-        /* Reducir tamaño de letra en móviles */
-        @media (max-width: 768px) {
-            .stMarkdown p { font-size: 11px !important; }
-            button p { font-size: 10px !important; }
-        }
+        .header-fixed { position: sticky; top: 0; background: white; z-index: 1000; border-bottom: 2px solid #FF8C00; padding: 10px 0; font-weight: bold; }
+        .scroll-area { max-height: 500px; overflow-y: auto; overflow-x: hidden; border: 1px solid #eee; padding: 10px; border-radius: 5px; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -302,20 +277,20 @@ def mostrar(supervisor_id=None):
                     conn.execute("ROLLBACK")
                     st.error(f"Error: {e}")
 
-    # --- ENCABEZADO FIJO (CON ICONOS COMPACTOS) ---
+    # --- ENCABEZADO FIJO ---
+    st.markdown("""<style>.h-fix { position: sticky; top: 0; background: white; z-index: 10; border-bottom: 2px solid #FF8C00; padding: 5px 0; font-weight: bold; }</style>""", unsafe_allow_html=True)
     st.markdown('<div class="h-fix">', unsafe_allow_html=True)
-    cols_h = st.columns([2.5] + [0.5]*8 + [1.5])
-    cols_h[0].write("📦 Producto")
+    cols_h = st.columns([3] + [0.7]*8 + [2])
+    cols_h[0].write("B101 Producto ml")
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
-            # El icono sirve de guía visual
-            st.markdown(f"<div style='text-align:center;'>{MAPEO_HITOS[hito]}</div>", unsafe_allow_html=True)
-            if st.button("✅", key=f"bk_{hito}", help=f"Marcar todo {hito}"):
+            if st.button("✅", key=f"bk_{hito}"):
                 f_now = obtener_fecha_formateada()
                 with conectar() as conn:
                     for p_id in df_f['id'].tolist(): registrar_hitos_cascada(conn, p_id, hito, f_now)
                 actualizar_avance_real(id_p); st.rerun()
-    cols_h[-1].write("📝 Notas")
+            st.write(MAPEO_HITOS[hito])
+    cols_h[-1].write("Observaciones")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================
