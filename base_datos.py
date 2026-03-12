@@ -1,75 +1,188 @@
-from supabase import create_client
 import streamlit as st
 import pandas as pd
+from datetime import date
+from supabase import create_client
+
+# =========================================================
+# 1. CONEXIÓN Y CONFIGURACIÓN (NUBE)
+# =========================================================
 
 def conectar():
-    """Establece conexión con Supabase."""
+    """Establece conexión con la base de datos de Supabase."""
     url = st.secrets["supabase"]["url"]
     key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
 def inicializar_bd():
-    """Ya no crea tablas localmente, pero evita errores de importación."""
+    """Mantenida por compatibilidad con app_principal.py"""
     pass
-        
-        # 1. Tabla: Usuarios (Roles: Administrador, Gerente, Supervisor)
-        cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre_usuario TEXT UNIQUE NOT NULL,
-            contrasena TEXT NOT NULL,
-            rol TEXT NOT NULL,
-            nombre_real TEXT)''')
 
-        # 2. Tabla: Proyectos (17 columnas contractuales + supervisor)
-        cursor.execute('''CREATE TABLE IF NOT EXISTS proyectos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, proyecto_text TEXT, partida TEXT,
-            f_ini TEXT, f_fin TEXT, estatus TEXT DEFAULT 'Activo', avance REAL DEFAULT 0.0,
-            p_dis_i TEXT, p_dis_f TEXT, p_fab_i TEXT, p_fab_f TEXT, 
-            p_tra_i TEXT, p_tra_f TEXT, p_ins_i TEXT, p_ins_f TEXT, p_ent_i TEXT, p_ent_f TEXT,
-            supervisor_id INTEGER,
-            UNIQUE(cliente, proyecto_text),
-            FOREIGN KEY (supervisor_id) REFERENCES usuarios (id))''')
-        
-        # 3. Tabla: Productos
-        cursor.execute('''CREATE TABLE IF NOT EXISTS productos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, proyecto_id INTEGER,
-            ubicacion TEXT, tipo TEXT, ctd INTEGER, ml REAL,
-            FOREIGN KEY (proyecto_id) REFERENCES proyectos (id) ON DELETE CASCADE)''')
+# =========================================================
+# 2. GESTIÓN DE USUARIOS
+# =========================================================
 
-        # 4. Tabla: Seguimiento (Hitos técnicos)
-        cursor.execute('''CREATE TABLE IF NOT EXISTS seguimiento (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, producto_id INTEGER, hito TEXT, fecha TEXT,
-            FOREIGN KEY (producto_id) REFERENCES productos (id) ON DELETE CASCADE,
-            UNIQUE(producto_id, hito))''')
+def validar_usuario(usuario, clave):
+    supabase = conectar()
+    res = supabase.table("usuarios").select("*").eq("nombre_usuario", usuario).eq("contrasena", clave).execute()
+    return res.data[0] if res.data else None
 
-        # 5. Tabla: Registro de Cierres (El candado) ---
-        # Esta tabla anotará qué proyecto y qué fecha ya no se pueden tocar
-        cursor.execute('''CREATE TABLE IF NOT EXISTS cierres_diarios (
-            proyecto_id INTEGER,
-            fecha TEXT,
-            cerrado_por INTEGER,
-            PRIMARY KEY (proyecto_id, fecha),
-            FOREIGN KEY (proyecto_id) REFERENCES proyectos (id) ON DELETE CASCADE)''')
+def obtener_supervisores():
+    supabase = conectar()
+    res = supabase.table("usuarios").select("id, nombre_real, rol").in_("rol", ['Administrador', 'Gerente', 'Supervisor']).execute()
+    return pd.DataFrame(res.data)
 
-        # Admin por defecto (Seguridad inicial)
-        try:
-            cursor.execute("INSERT INTO usuarios (nombre_usuario, contrasena, rol, nombre_real) VALUES (?,?,?,?)",
-                         ('admin', 'admin123', 'Administrador', 'Karen Paola'))
-        except: pass
-        
-        # Parche para asegurar columna supervisor en bases de datos existentes
-        try:
-            cursor.execute("ALTER TABLE proyectos ADD COLUMN supervisor_id INTEGER")
-        except: pass
-        
-        # --- AGREGAR ESTO DENTRO DE inicializar_bd() ---
-        
-        # 1. Asegurar columna observaciones en seguimiento
-        try:
-            cursor.execute("ALTER TABLE seguimiento ADD COLUMN observaciones TEXT")
-        except sqlite3.OperationalError:
-            pass 
+# =========================================================
+# 3. GESTIÓN DE PROYECTOS
+# =========================================================
 
+def obtener_proyectos(busqueda="", supervisor_id=None):
+    supabase = conectar()
+    query = supabase.table("proyectos").select("*")
+    
+    if supervisor_id:
+        query = query.eq("supervisor_id", supervisor_id)
+    
+    res = query.execute()
+    df = pd.DataFrame(res.data)
+    
+    if not df.empty and busqueda:
+        busqueda = busqueda.lower()
+        df = df[df['proyecto_text'].str.lower().str.contains(busqueda) | 
+                df['cliente'].str.lower().str.contains(busqueda) | 
+                df['estatus'].str.lower().str.contains(busqueda)]
+    return df
+
+def actualizar_proyecto(id_p, campos):
+    supabase = conectar()
+    supabase.table("proyectos").update(campos).eq("id", id_p).execute()
+
+def eliminar_proyecto(id_p):
+    supabase = conectar()
+    supabase.table("proyectos").delete().eq("id", id_p).execute()
+
+# =========================================================
+# 4. GESTIÓN DE PRODUCTOS E INVENTARIO
+# =========================================================
+
+def agregar_producto_manual(id_p, u, t, c, m):
+    supabase = conectar()
+    supabase.table("productos").insert({
+        "proyecto_id": id_p, "ubicacion": u, "tipo": t, "ctd": c, "ml": m
+    }).execute()
+
+def actualizar_producto(id_prod, u, t, c, m):
+    supabase = conectar()
+    supabase.table("productos").update({
+        "ubicacion": u, "tipo": t, "ctd": c, "ml": m
+    }).eq("id", id_prod).execute()
+
+def eliminar_producto(id_prod):
+    supabase = conectar()
+    supabase.table("productos").delete().eq("id", id_prod).execute()
+
+def obtener_resumen_inventario(id_proyecto):
+    supabase = conectar()
+    res = supabase.table("productos").select("ctd, ml").eq("proyecto_id", id_proyecto).execute()
+    df = pd.DataFrame(res.data)
+    if df.empty: return (0, 0)
+    return (df['ctd'].sum(), df['ml'].sum())
+
+def obtener_datos_reporte(id_proyecto):
+    supabase = conectar()
+    res = supabase.table("productos").select("ubicacion, tipo, ctd, ml").eq("proyecto_id", id_proyecto).execute()
+    df = pd.DataFrame(res.data)
+    if not df.empty:
+        df.columns = ['Ubicación', 'Tipo', 'Cantidad', 'Metros Lineales']
+    return df
+
+def borrar_productos_proyecto(proyecto_id):
+    supabase = conectar()
+    supabase.table("productos").delete().eq("proyecto_id", proyecto_id).execute()
+    supabase.table("proyectos").update({"avance": 0}).eq("id", proyecto_id).execute()
+
+# =========================================================
+# 5. SEGUIMIENTO, AVANCE Y GANTT (LÓGICA PRESERVADA)
+# =========================================================
+
+def actualizar_avance_real(id_p):
+    supabase = conectar()
+    # Contar productos
+    prods = supabase.table("productos").select("id").eq("proyecto_id", id_p).execute()
+    total_prod = len(prods.data)
+    if total_prod == 0: return
+
+    # Contar hitos marcados
+    ids_prod = [p['id'] for p in prods.data]
+    segs = supabase.table("seguimiento").select("id").in_("producto_id", ids_prod).execute()
+    
+    checks = len(segs.data)
+    nuevo_avance = (checks / (total_prod * 8)) * 100
+    supabase.table("proyectos").update({"avance": nuevo_avance}).eq("id", id_p).execute()
+
+def obtener_gantt_real_data(id_p):
+    supabase = conectar()
+    mapeo = {
+        "Diseño": ["Diseñado"], 
+        "Fabricación": ["Fabricado"], 
+        "Traslado": ["Material en Obra", "Material en Ubicación"], 
+        "Instalación": ["Instalación de Estructura", "Instalación de Puertas o Frentes", "Revisión y Observaciones"], 
+        "Entrega": ["Entrega"]
+    }
+    
+    # Obtener todos los seguimientos del proyecto
+    prods = supabase.table("productos").select("id").eq("proyecto_id", id_p).execute()
+    ids_prod = [p['id'] for p in prods.data]
+    segs_res = supabase.table("seguimiento").select("hito, fecha").in_("producto_id", ids_prod).execute()
+    df_segs = pd.DataFrame(segs_res.data)
+    
+    reales = []
+    if not df_segs.empty:
+        for etapa, hitos in mapeo.items():
+            mask = df_segs['hito'].isin(hitos)
+            fechas_etapa = df_segs[mask]['fecha']
+            if not fechas_etapa.empty:
+                reales.append({"Etapa": etapa, "Inicio": fechas_etapa.min(), "Fin": fechas_etapa.max()})
+    
+    return pd.DataFrame(reales)
+
+# =========================================================
+# 6. GESTIÓN DE INCIDENCIAS Y PIEZAS
+# =========================================================
+
+def registrar_incidencia_detallada(proy_id, tipo_inc, motivo, piezas, materiales, user_id):
+    supabase = conectar()
+    # Insertar cabecera
+    inc_res = supabase.table("incidencias").insert({
+        "proyecto_id": proy_id, "tipo_requerimiento": tipo_inc, 
+        "categoria": motivo, "fecha_reporte": date.today().isoformat(), "usuario_id": user_id
+    }).execute()
+    
+    inc_id = inc_res.data[0]['id']
+    
+    if piezas:
+        for p in piezas:
+            p['incidencia_id'] = inc_id
+            supabase.table("detalles_piezas").insert(p).execute()
+    
+    if materiales:
+        for m in materiales:
+            m['incidencia_id'] = inc_id
+            supabase.table("detalles_materiales").insert(m).execute()
+
+def obtener_incidencias_resumen():
+    supabase = conectar()
+    # En Supabase las uniones (JOIN) se hacen mediante relaciones de tablas
+    res = supabase.table("incidencias").select("*, proyectos(proyecto_text), usuarios(nombre_real)").order("id", desc=True).execute()
+    df = pd.DataFrame(res.data)
+    if not df.empty:
+        # Aplanar el JSON de respuesta para mantener compatibilidad con tu código actual
+        df['proyecto_text'] = df['proyectos'].apply(lambda x: x['proyecto_text'] if x else "")
+        df['nombre_real'] = df['usuarios'].apply(lambda x: x['nombre_real'] if x else "")
+    return df
+
+def actualizar_estado_incidencia(inc_id, nuevo_estado):
+    supabase = conectar()
+    supabase.table("incidencias").update({"estado": nuevo_estado}).eq("id", inc_id).execute()
         # 2. Nueva Tabla: Incidencias (Cabecera del requerimiento)
         cursor.execute('''CREATE TABLE IF NOT EXISTS incidencias (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,3 +373,4 @@ def borrar_productos_proyecto(proyecto_id):
         conn.execute("UPDATE proyectos SET avance = 0 WHERE id = ?", (proyecto_id,))
 
         conn.commit()
+
