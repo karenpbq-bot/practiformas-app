@@ -226,26 +226,28 @@ def mostrar(supervisor_id=None):
             df_excel.to_excel(writer, index=False, sheet_name='Avance_Fechas')
         st.download_button("📥 Exportar Avance", data=output.getvalue(), file_name=f"Avance_{p_data['proyecto_text']}.xlsx", use_container_width=True)
 
-    with c_m4: # IMPORTAR AVANCE (Sincronización Optimizada)
+    with c_m4: # IMPORTAR AVANCE (Sincronización Corregida)
         f_in = st.file_uploader("📤 Sincronizar Excel", type=["xlsx"], label_visibility="collapsed")
         if f_in:
-            df_imp = pd.read_excel(f_in)
-            f_hoy = obtener_fecha_formateada()
-            actualizados = 0
-            
-            with conectar() as conn:
-                conn.execute("BEGIN TRANSACTION")
-                try:
+            try:
+                df_imp = pd.read_excel(f_in)
+                f_hoy = obtener_fecha_formateada()
+                actualizados = 0
+                
+                # En modo isolation_level=None no usamos BEGIN TRANSACTION manual
+                with conectar() as conn:
                     for _, rx in df_imp.iterrows():
-                        # Limpieza extrema de datos para asegurar coincidencia
+                        # Limpieza de datos
                         u_ex = str(rx.get('ubicacion', rx.get('Ubicación', ''))).strip()
                         t_ex = str(rx.get('tipo', rx.get('Tipo', ''))).strip()
                         try:
-                            m_ex = float(rx.get('ml', rx.get('Metros Lineales', 0)))
+                            # Intentar obtener ML, si falla o es NaN ponemos 0.0
+                            val_ml = rx.get('ml', rx.get('Metros Lineales', 0))
+                            m_ex = float(val_ml) if pd.notnull(val_ml) else 0.0
                         except:
                             m_ex = 0.0
                         
-                        # Buscamos el ID exacto
+                        # Buscamos el ID exacto del producto
                         res = conn.execute(
                             "SELECT id FROM productos WHERE proyecto_id=? AND ubicacion=? AND tipo=? AND ml=?", 
                             (id_p, u_ex, t_ex, m_ex)
@@ -255,19 +257,19 @@ def mostrar(supervisor_id=None):
                             p_id_imp = res[0]
                             for hito in MAPEO_HITOS.keys():
                                 valor = str(rx.get(hito, '')).strip().upper()
-                                # Registra hito y activa cascada respetando fechas previas
-                                if valor != "" and valor != "NO" and valor != "NAN":
+                                # Si la celda en Excel tiene algo (X, OK, SI, etc)
+                                if valor not in ["", "NO", "NAN", "NONE", "0"]:
                                     registrar_hitos_cascada(conn, p_id_imp, hito, f_hoy)
+                                    actualizados += 1
                     
-                    conn.execute("COMMIT")
-                    # CRÍTICO: Recalcular y forzar lectura de base de datos
+                    # Recalcular avance del proyecto al finalizar el bucle
                     actualizar_avance_real(id_p)
-                    st.success(f"✅ {actualizados} hitos sincronizados.")
-                    st.rerun() # Forzar a Streamlit a volver a leer los checks de la DB
                 
-                except Exception as e:
-                    conn.execute("ROLLBACK")
-                    st.error(f"Error: {e}")
+                st.success(f"✅ Sincronización finalizada. {actualizados} hitos procesados.")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error al procesar el Excel: {e}")
 
     # --- ENCABEZADO FIJO ---
     st.markdown("""<style>.h-fix { position: sticky; top: 0; background: white; z-index: 10; border-bottom: 2px solid #FF8C00; padding: 5px 0; font-weight: bold; }</style>""", unsafe_allow_html=True)
@@ -340,4 +342,5 @@ def mostrar(supervisor_id=None):
     if esta_guardado and es_jefe:
         if st.button("🔓 Reabrir Reporte", use_container_width=True):
             with conectar() as conn: conn.execute("DELETE FROM cierres_diarios WHERE proyecto_id=? AND fecha=?", (id_p, fecha_avance.isoformat()))
+
             st.rerun()
