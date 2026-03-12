@@ -1,18 +1,16 @@
-import sqlite3
+from supabase import create_client
+import streamlit as st
 import pandas as pd
-from datetime import datetime, date
 
 def conectar():
-    # Eliminamos cualquier rastro de caché con isolation_level=None
-    conn = sqlite3.connect('carpinteria_v2.db', timeout=30, isolation_level=None)
-    conn.execute('PRAGMA foreign_keys = ON')
-    # Modo WAL permite que Streamlit lea mientras la base de datos escribe
-    conn.execute('PRAGMA journal_mode = WAL') 
-    return conn
+    """Establece conexión con Supabase."""
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
 
 def inicializar_bd():
-    with conectar() as conn:
-        cursor = conn.cursor()
+    """Ya no crea tablas localmente, pero evita errores de importación."""
+    pass
         
         # 1. Tabla: Usuarios (Roles: Administrador, Gerente, Supervisor)
         cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
@@ -260,4 +258,5 @@ def borrar_productos_proyecto(proyecto_id):
         conn.execute("DELETE FROM productos WHERE proyecto_id = ?", (proyecto_id,))
         # Importante: Reiniciar el avance del proyecto
         conn.execute("UPDATE proyectos SET avance = 0 WHERE id = ?", (proyecto_id,))
+
         conn.commit()
