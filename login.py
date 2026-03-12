@@ -1,13 +1,9 @@
 import streamlit as st
 import pandas as pd
-from base_datos import conectar
+from base_datos import validar_usuario # Importamos directamente la función ajustada
 
-def validar_usuario(usuario, clave):
-    """Consulta la base de datos para verificar las credenciales."""
-    query = "SELECT * FROM usuarios WHERE nombre_usuario = ? AND contrasena = ?"
-    with conectar() as conn:
-        df = pd.read_sql_query(query, conn, params=(usuario, clave))
-    return df.iloc[0] if not df.empty else None
+# --- ELIMINAMOS LA FUNCIÓN LOCAL validar_usuario PORQUE YA ESTÁ EN base_datos.py ---
+# Al estar centralizada en base_datos.py, evitamos conflictos de conexión.
 
 def login_screen():
     """Muestra la interfaz de inicio de sesión."""
@@ -31,10 +27,12 @@ def login_screen():
                 
                 if submit:
                     if usuario and clave:
+                        # LLAMADA A LA FUNCIÓN DE NUBE
                         user_data = validar_usuario(usuario, clave)
                         
                         if user_data is not None:
                             # --- GUARDAR ESTADO DE SESIÓN ---
+                            # Nota: En Supabase, user_data ya es un diccionario, no un DataFrame.
                             st.session_state.autenticado = True
                             st.session_state.usuario = user_data['nombre_usuario']
                             st.session_state.rol = user_data['rol']
