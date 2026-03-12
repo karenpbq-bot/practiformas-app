@@ -53,6 +53,22 @@ def eliminar_proyecto(id_p):
     supabase = conectar()
     supabase.table("proyectos").delete().eq("id", id_p).execute()
 
+def obtener_datos_reporte(id_proyecto):
+    """Extrae el inventario detallado desde la nube para exportación a Excel y WhatsApp."""
+    try:
+        supabase = conectar()
+        res = supabase.table("productos").select("ubicacion, tipo, ctd, ml").eq("proyecto_id", id_proyecto).execute()
+        
+        df = pd.DataFrame(res.data)
+        if not df.empty:
+            # Renombramos las columnas para que el Excel se vea profesional
+            df.columns = ['Ubicación', 'Tipo', 'Cantidad', 'Metros Lineales']
+            return df
+        return pd.DataFrame() # Devuelve un DataFrame vacío si no hay datos
+    except Exception as e:
+        st.error(f"Error al generar reporte: {e}")
+        return pd.DataFrame()
+
 # =========================================================
 # 4. GESTIÓN DE PRODUCTOS Y AVANCE
 # =========================================================
@@ -123,4 +139,5 @@ def obtener_incidencias_resumen():
         df['proyecto_text'] = df['proyectos'].apply(lambda x: x['proyecto_text'] if x else "")
         df['nombre_real'] = df['usuarios'].apply(lambda x: x['nombre_real'] if x else "")
     return df
+
 
