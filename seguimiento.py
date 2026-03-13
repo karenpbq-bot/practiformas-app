@@ -179,6 +179,7 @@ def mostrar(supervisor_id=None):
         puntos = sum(sum(t_w.get(h, 0) for h in df_s[df_s['producto_id'] == m['id']]['hito'].tolist()) for _, m in df_m.iterrows())
         return round(puntos / len(df_m), 2)
 
+    # === CÁLCULOS PREVIOS (Fuera del Sticky para no crear espacios) ===
     pct_total = calcular_avance(prods_all, segs, pesos)
     pct_parcial = calcular_avance(prods_filt, segs, pesos)
 
@@ -186,12 +187,17 @@ def mostrar(supervisor_id=None):
     # 4. CENTRO DE CONTROL COMPACTO (STICKY)
     # =========================================================
     st.markdown('<div class="sticky-top">', unsafe_allow_html=True)
+    
     c_ctrl = st.columns([1, 1, 1.1, 1.2])
     c_ctrl[0].markdown(f"<div class='metric-small'>TOTAL<br><span class='pct-val'>{pct_total}%</span></div>", unsafe_allow_html=True)
     c_ctrl[1].markdown(f"<div class='metric-small'>FILTRO<br><span class='pct-val'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
-    with c_ctrl[2]: fecha_reg = st.date_input("F", datetime.now(), key="fecha_seg", label_visibility="collapsed")
+    
+    with c_ctrl[2]: 
+        # Forzamos que el selector de fecha use el formato correcto
+        fecha_reg = st.date_input("F", datetime.now(), label_visibility="collapsed", key="f_sticky_final")
+    
     with c_ctrl[3]:
-        if st.button("💾 GUARDAR", use_container_width=True, type="primary"):
+        if st.button("💾 GUARDAR", use_container_width=True, type="primary", key="btn_save_v2"):
             actualizar_avance_real(id_p)
             nota_actual = p_data.get('partida', '')
             supabase.table("proyectos").update({"partida": nota_actual, "avance": pct_total}).eq("id", id_p).execute()
@@ -199,40 +205,60 @@ def mostrar(supervisor_id=None):
 
     cols_h = st.columns([3] + [0.7]*8 + [2])
     cols_h[0].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Mueble / ml</div>", unsafe_allow_html=True)
+    
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
             if st.button("✅", key=f"btn_massive_{hito}"):
-                for pid in prods_filt['id'].tolist(): registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
+                # Forzamos formato día/mes/año en la carga masiva
+                f_str = fecha_reg.strftime("%d/%m/%Y")
+                for pid in prods_filt['id'].tolist(): 
+                    registrar_hitos_cascada(pid, hito, f_str)
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
+    
     cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Nota</div>", unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # CIERRE DEL STICKY
+    st.markdown('</div>', unsafe_allow_html=True) 
 
     # =========================================================
     # 5. MATRIZ DE PRODUCTOS (SCROLL)
     # =========================================================
+    # UNIÓN HERMÉTICA: Apertura inmediata del div para eliminar el recuadro
     st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
-    def render_prods(df_render):
-        rol = st.session_state.rol
-        for _, prod in df_render.iterrows():
-            cols = st.columns([3] + [0.7]*8 + [2])
-            cols[0].markdown(f"<div style='font-size:11px; line-height:1.1;'><b>{prod['ubicacion']}</b> {prod['tipo']} <br><span style='font-size:10px; color:gray;'>{prod['ml']} ml</span></div>", unsafe_allow_html=True)
-            for i, hito in enumerate(HITOS_LIST):
-                m = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
-                en_db = not m.empty
-                tiene_post = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'].isin(HITOS_LIST[i+1:]))].empty
-                bloqueo = (en_db and rol == "Supervisor") or (en_db and tiene_post)
-                if cols[i+1].checkbox("Ok", key=f"c_{prod['id']}_{hito}", value=en_db, label_visibility="collapsed", disabled=bloqueo):
-                    if not en_db: registrar_hitos_cascada(prod['id'], hito, fecha_reg.strftime("%d/%m/%Y")); st.rerun()
-                elif en_db and not tiene_post and rol != "Supervisor":
-                    supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute(); st.rerun()
-            obs_db = m['observaciones'].iloc[0] if en_db and 'observaciones' in m.columns else ""
-            cols[-1].text_input("N", value=obs_db, key=f"o_{prod['id']}", label_visibility="collapsed")
 
-    col_tec = st.session_state.columna_tecnica
-    if col_tec:
-        for n, g in prods_filt.groupby(col_tec):
+    # Función de renderizado con formato de fecha forzado
+    def render_fila_optimizada(p, s_df, rol_u, f_actual):
+        cs = st.columns([3] + [0.7]*8 + [2])
+        cs[0].markdown(f"<div style='font-size:11px; line-height:1.1;'><b>{p['ubicacion']}</b> {p['tipo']} <br><span style='font-size:10px; color:gray;'>{p['ml']} ml</span></div>", unsafe_allow_html=True)
+        
+        for i, h in enumerate(HITOS_LIST):
+            m = s_df[(s_df['producto_id'] == p['id']) & (s_df['hito'] == h)]
+            en_db = not m.empty
+            bloqueo = (en_db and rol_u == "Supervisor") or (not s_df[(s_df['producto_id'] == p['id']) & (s_df['hito'].isin(HITOS_LIST[i+1:]))].empty)
+
+            if cs[i+1].checkbox("Ok", key=f"ch_{p['id']}_{h}", value=en_db, label_visibility="collapsed", disabled=bloqueo):
+                if not en_db: 
+                    # Forzamos formato día/mes/año en el checkbox
+                    registrar_hitos_cascada(p['id'], h, f_actual.strftime("%d/%m/%Y"))
+                    st.rerun()
+            elif en_db and not bloqueo and rol_u != "Supervisor":
+                supabase.table("seguimiento").delete().eq("producto_id", p['id']).eq("hito", h).execute()
+                st.rerun()
+        
+        # Nota individual
+        obs = m['observaciones'].iloc[0] if en_db and 'observaciones' in m.columns else ""
+        cs[-1].text_input("N", value=obs, key=f"obs_{p['id']}", label_visibility="collapsed")
+
+    # Renderizado final
+    r_act = st.session_state.rol
+    c_tec = st.session_state.columna_tecnica
+    
+    if c_tec:
+        for n, g in prods_filt.groupby(c_tec):
             st.markdown(f"<div style='background:#f1f1f1; padding:2px 5px; font-size:11px; font-weight:bold;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
-            render_prods(g)
-    else: render_prods(prods_filt)
+            for _, r in g.iterrows(): render_fila_optimizada(r, segs, r_act, fecha_reg)
+    else:
+        for _, r in prods_filt.iterrows(): render_fila_optimizada(r, segs, r_act, fecha_reg)
+
     st.markdown('</div>', unsafe_allow_html=True)
