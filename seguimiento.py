@@ -104,6 +104,19 @@ def mostrar(supervisor_id=None):
     id_p = opciones[sel_p_nom]
     p_data = df_p[df_p['id'] == id_p].iloc[0]
 
+    # --- CARGA DE DATOS ---
+    res_base = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
+    prods_all = pd.DataFrame(res_base.data)
+    ids_list = prods_all['id'].tolist() if not prods_all.empty else []
+    segs_res = supabase.table("seguimiento").select("*").in_("producto_id", ids_list).execute()
+    segs = pd.DataFrame(segs_res.data) if segs_res.data else pd.DataFrame(columns=['producto_id','hito','fecha','observaciones'])
+
+    # IMPORTANTE: También define prods_filt aquí arriba para que las herramientas lo vean
+    prods_filt = prods_all.copy()
+    if not prods_filt.empty:
+        if bus_capa1: prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa1, case=False) | prods_filt['tipo'].str.contains(bus_capa1, case=False)]
+        if bus_capa2: prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa2, case=False) | prods_filt['tipo'].str.contains(bus_capa2, case=False)]
+
     # --- BLOQUE 2 (PLEGABLE): CONFIGURACIÓN, PONDERACIÓN E IMPORTACIÓN ---
     with st.expander("🛠️ 2. HERRAMIENTAS, PONDERACIÓN E IMPORTACIÓN", expanded=False):
         t1, t2, t3 = st.tabs(["⚖️ Ponderación de Etapas", "🔍 Filtros de Matriz", "📥 Importar Avances"])
@@ -203,13 +216,6 @@ def mostrar(supervisor_id=None):
                 use_container_width=True
             )
 
-    # --- CARGA DE DATOS ---
-    res_base = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
-    prods_all = pd.DataFrame(res_base.data)
-    ids_list = prods_all['id'].tolist() if not prods_all.empty else []
-    segs_res = supabase.table("seguimiento").select("*").in_("producto_id", ids_list).execute()
-    segs = pd.DataFrame(segs_res.data) if segs_res.data else pd.DataFrame(columns=['producto_id','hito','fecha','observaciones'])
-
     # Aplicación de Capas de Filtro
     prods_filt = prods_all.copy()
     if not prods_filt.empty:
@@ -233,7 +239,7 @@ def mostrar(supervisor_id=None):
     # =========================================================
     st.markdown('<div class="sticky-top">', unsafe_allow_html=True)
     
-    # Fila 1: Avances, Fecha y Guardar
+    # Fila 1: Avance T | Avance P | Fecha | Guardar
     c_ctrl = st.columns([1, 1, 1.1, 1.2])
     c_ctrl[0].markdown(f"<div class='metric-small'>TOTAL<br><span class='pct-val'>{pct_total}%</span></div>", unsafe_allow_html=True)
     c_ctrl[1].markdown(f"<div class='metric-small'>FILTRO<br><span class='pct-val'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
@@ -244,82 +250,66 @@ def mostrar(supervisor_id=None):
     with c_ctrl[3]:
         if st.button("💾 GUARDAR", use_container_width=True, type="primary"):
             actualizar_avance_real(id_p)
-            # Guardamos notas del proyecto (asegúrate de que nota_proy esté definida)
-            supabase.table("proyectos").update({"partida": nota_proy, "avance": pct_total}).eq("id", id_p).execute()
-            # Registro histórico de cierre
-            ahora = datetime.now()
-            supabase.table("cierres_diarios").insert({
-                "proyecto_id": id_p, "fecha": ahora.strftime("%d/%m/%Y"), 
-                "hora": ahora.strftime("%H:%M:%S"), "cerrado_por": st.session_state.get('id_usuario', 0)
-            }).execute()
-            st.success("Guardado"); st.rerun()
+            # Aseguramos que la nota se guarde (usa la variable del text_area o la de la DB)
+            val_nota = nota_proy if 'nota_proy' in locals() else p_data.get('partida', '')
+            supabase.table("proyectos").update({"partida": val_nota, "avance": pct_total}).eq("id", id_p).execute()
+            st.success("¡Guardado!"); st.rerun()
 
-    # Fila 2: Encabezado Naranja (Mueble + Iconos + Nota)
+    # Fila 2: Encabezado Naranja (Mueble + Iconos ✅)
     cols_h = st.columns([3] + [0.7]*8 + [2])
     cols_h[0].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Mueble / ml</div>", unsafe_allow_html=True)
     
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
-            if st.button("✅", key=f"btn_all_{hito}"):
-                for pid in prods_filt['id'].tolist():
+            if st.button("✅", key=f"btn_massive_{hito}"):
+                for pid in prods_filt['id'].tolist(): 
                     registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
     
-    # El encabezado de nota va FUERA del bucle para no repetirse
-    cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Observación</div>", unsafe_allow_html=True)
+    # La columna de Nota/Observación va FUERA del bucle for
+    cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Nota</div>", unsafe_allow_html=True)
     
-    st.markdown('</div>', unsafe_allow_html=True) # Cierre del área fija
+    st.markdown('</div>', unsafe_allow_html=True) # Cierre exacto del Sticky
 
     # =========================================================
     # 5. MATRIZ DE PRODUCTOS (SCROLL)
     # =========================================================
-    # Iniciamos el scroll inmediatamente después del encabezado
+    # Iniciamos el scroll inmediatamente después del encabezado naranja
     st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
     
     def render_prods(df_render):
         rol = st.session_state.rol
         for _, prod in df_render.iterrows():
             cols = st.columns([3] + [0.7]*8 + [2])
-            
-            # Nombre del mueble compacto
             cols[0].markdown(f"<div style='font-size:11px; line-height:1.2;'><b>{prod['ubicacion']}</b> {prod['tipo']} <br><code style='font-size:10px;'>{prod['ml']} ml</code></div>", unsafe_allow_html=True)
             
-            # Variable para rastrear la observación del producto
-            obs_actual = ""
-            
             for i, hito in enumerate(HITOS_LIST):
-                match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
-                en_db = not match.empty
-                if en_db: obs_actual = match['observaciones'].iloc[0] if 'observaciones' in match.columns else obs_actual
+                m = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
+                en_db = not m.empty
+                tiene_post = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'].isin(HITOS_LIST[i+1:]))].empty
                 
-                posteriores = HITOS_LIST[i+1:]
-                tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'].isin(posteriores))].empty
-                
-                # Reglas de negocio: Cascada y Seguridad
-                bloqueo = (en_db and rol == "Supervisor") or (en_db and tiene_posterior)
+                bloqueo = (en_db and rol == "Supervisor") or (en_db and tiene_post)
 
                 if cols[i+1].checkbox("Ok", key=f"c_{prod['id']}_{hito}", value=en_db, label_visibility="collapsed", disabled=bloqueo):
                     if not en_db:
                         registrar_hitos_cascada(prod['id'], hito, fecha_reg.strftime("%d/%m/%Y"))
                         st.rerun()
-                elif en_db and not tiene_posterior and rol != "Supervisor":
+                elif en_db and not tiene_post and rol != "Supervisor":
                     supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
                     st.rerun()
             
-            # Notas por producto (Se guardan en el hito "Diseñado" por defecto para consistencia)
-            new_obs = cols[-1].text_input("Nota", value=obs_actual, key=f"o_{prod['id']}", label_visibility="collapsed", placeholder="...")
-            if new_obs != obs_actual:
-                # Actualizar observaciones en todos los hitos registrados de este producto
-                supabase.table("seguimiento").update({"observaciones": new_obs}).eq("producto_id", prod['id']).execute()
+            # Nota individual
+            obs_db = m['observaciones'].iloc[0] if en_db and 'observaciones' in m.columns else ""
+            cols[-1].text_input("N", value=obs_db, key=f"o_{prod['id']}", label_visibility="collapsed")
 
-    # Renderizado con soporte para agrupaciones
+    # Renderizado con lógica de agrupación
     if columna_tecnica:
         for n, g in prods_filt.groupby(columna_tecnica):
-            st.markdown(f"<div style='background:#f1f1f1; padding:2px 5px; font-size:11px; font-weight:bold; border-left:3px solid #FF8C00;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background:#f1f1f1; padding:2px 5px; font-size:11px; font-weight:bold;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
             render_prods(g)
     else:
         render_prods(prods_filt)
-
+        
     st.markdown('</div>', unsafe_allow_html=True)
 
