@@ -49,50 +49,44 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
 # 3. INTERFAZ PRINCIPAL
 # =========================================================
 def mostrar(supervisor_id=None):
-   # CSS para Vista Densa, Profesional y Realmente Fija
+  # CSS para eliminar espacios muertos y fijar el ancho
     st.markdown("""
         <style>
-        /* 1. Eliminamos el aire en la parte superior de la app */
-        .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; }
+        /* 1. Eliminar espacios entre elementos de Streamlit */
+        [data-testid="stVerticalBlock"] > div {
+            gap: 0rem !important;
+            padding-top: 0px !important;
+            padding-bottom: 0px !important;
+        }
         
-        /* 2. El encabezado: se convierte en una franja delgada */
+        /* 2. Centro de Control y Encabezado FIJO */
         .sticky-top { 
             position: sticky; 
             top: 0; 
             background: white; 
-            z-index: 999; 
-            border-bottom: 1px solid #FF8C00; /* Línea delgada naranja */
-            padding: 2px 0px 5px 0px !important;
-            margin-bottom: 0px !important;
+            z-index: 1000; 
+            border-bottom: 2px solid #FF8C00;
+            padding: 0px !important;
         }
 
-        /* 3. Ajuste de columnas para que no se dispersen */
-        [data-testid="column"] {
-            padding: 0px 1px !important;
-            margin: 0px !important;
-            min-width: 0px !important;
-        }
-
-        /* 4. El área de productos: eliminamos el espacio superior */
+        /* 3. Área de productos: pegada al encabezado */
         .scroll-area { 
-            height: 600px; 
+            height: 60vh; 
             overflow-y: auto !important; 
             overflow-x: auto !important; 
             border: 1px solid #eee;
-            margin-top: 0px !important;
-            padding-top: 0px !important;
+            margin-top: -2px !important; /* Elimina la separación visual */
         }
 
-        /* 5. Aseguramos que las filas de productos sean compactas */
+        /* 4. Métricas y textos miniatura */
+        .metric-small { font-size: 11px; font-weight: bold; color: #666; line-height: 1; }
+        .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
+        
+        /* 5. Forzar filas horizontales en móvil */
         [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
             gap: 2px !important;
-            margin-bottom: -5px !important; /* Acerca las filas entre sí */
         }
-        
-        /* 6. Textos y métricas minúsculas */
-        .metric-small { font-size: 10px; font-weight: bold; color: #666; line-height: 1; }
-        .pct-val { font-size: 12px; color: #FF8C00; font-weight: bold; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -304,6 +298,7 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
