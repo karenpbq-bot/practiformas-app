@@ -81,16 +81,13 @@ def mostrar(supervisor_id=None):
     id_p = opciones[sel_p_nom]
     p_data = df_p[df_p['id'] == id_p].iloc[0]
 
-    # --- BLOQUE 2: HERRAMIENTAS, CARGA Y CÁLCULOS (UNIFICADO) ---
+    # --- BLOQUE 2: HERRAMIENTAS, CARGA Y CÁLCULOS (UNIFICADO Y ÚNICO) ---
     with st.expander("🛠️ 2. HERRAMIENTAS, PONDERACIÓN E IMPORTACIÓN", expanded=False):
-        t1, t2, t3 = st.tabs(["⚖️ Ponderación de Etapas", "🔍 Filtros de Matriz", "📥 Imp/Exp"])
+        t1, t2, t3 = st.tabs(["⚖️ Ponderación", "🔍 Filtros", "📥 Imp/Exp"])
         
         with t1:
-            st.write("Ajuste el peso (%) de cada etapa según el esfuerzo real:")
             cols_w = st.columns(4)
             pesos = {h: cols_w[i % 4].number_input(f"{h} (%)", value=12.5, step=0.5, key=f"w_{h}") for i, h in enumerate(HITOS_LIST)}
-            if sum(pesos.values()) != 100:
-                st.warning(f"⚠️ La suma actual es {sum(pesos.values())}%. Ajuste para llegar a 100%.")
 
         with t2:
             f1, f2, f3 = st.columns(3)
@@ -99,7 +96,7 @@ def mostrar(supervisor_id=None):
             st.session_state.bus_capa1 = f2.text_input("🔍 Filtro Primario (Zona/Tipo):", key="f_capa1")
             st.session_state.bus_capa2 = f3.text_input("🔍 Refinar Búsqueda:", key="f_capa2")
 
-        # --- CARGA DE DATOS INTERNA (Para que T3 tenga acceso a los datos) ---
+        # --- CARGA DE DATOS CENTRALIZADA ---
         res_base = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
         prods_all = pd.DataFrame(res_base.data)
         ids_list = prods_all['id'].tolist() if not prods_all.empty else []
@@ -113,8 +110,8 @@ def mostrar(supervisor_id=None):
             if b2: prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(b2, case=False) | prods_filt['tipo'].str.contains(b2, case=False)]
 
         with t3:
-            # 1. IMPORTACIÓN
-            archivo_excel = st.file_uploader("📥 Cargar Seguimiento Excel", type=["xlsx"], key="uploader_unico")
+            # IMPORTACIÓN (Solo aparece aquí una vez)
+            archivo_excel = st.file_uploader("📥 Cargar Seguimiento Excel", type=["xlsx"], key="uploader_seguimiento_unico")
             if archivo_excel:
                 df_imp = pd.read_excel(archivo_excel)
                 df_imp.columns = [str(c).lower().replace('ó','o').replace('á','a').strip() for c in df_imp.columns]
@@ -137,21 +134,23 @@ def mostrar(supervisor_id=None):
                         supabase.table("seguimiento").upsert(df_limpio.to_dict(orient='records'), on_conflict="producto_id, hito").execute()
                         st.success("✅ Importación completa."); st.rerun()
             
-            # 2. EXPORTACIÓN
+            # EXPORTACIÓN
             st.divider()
             st.write("📤 **Exportar Reporte Maestro**")
             df_exp = prods_filt.copy().rename(columns={'proyecto_id': 'Id Proyecto', 'ubicacion': 'Ubicacion', 'tipo': 'Tipo', 'ctd': 'Ctd'})
             for h in HITOS_LIST:
                 df_exp[h] = df_exp['id'].apply(lambda x: segs[(segs['producto_id']==x) & (segs['hito']==h)]['fecha'].iloc[0] if not segs[(segs['producto_id']==x) & (segs['hito']==h)].empty else "")
+            
             output_exp = io.BytesIO()
             with pd.ExcelWriter(output_exp, engine='openpyxl') as writer:
                 df_exp[['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST].to_excel(writer, index=False, sheet_name='Seguimiento')
+            
             st.download_button(label="📥 DESCARGAR EXCEL", data=output_exp.getvalue(), file_name=f"Seguimiento_{sel_p_nom}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
-    # --- CÁLCULOS DE AVANCE (ÚNICA VEZ, ANTES DEL STICKY) ---
-    def calcular_avance(df_m, df_s, t_pesos):
+    # --- CÁLCULOS DE AVANCE (Fuera del expander, una sola vez) ---
+    def calcular_avance(df_m, df_s, t_w):
         if df_m.empty: return 0.0
-        puntos = sum(sum(t_pesos.get(h, 0) for h in df_s[df_s['producto_id'] == m['id']]['hito'].tolist()) for _, m in df_m.iterrows())
+        puntos = sum(sum(t_w.get(h, 0) for h in df_s[df_s['producto_id'] == m['id']]['hito'].tolist()) for _, m in df_m.iterrows())
         return round(puntos / len(df_m), 2)
 
     pct_total = calcular_avance(prods_all, segs, pesos)
@@ -236,4 +235,5 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
