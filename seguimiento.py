@@ -52,13 +52,35 @@ def mostrar(supervisor_id=None):
     # CSS Optimizado: Compacto, Fijo y con Scroll Horizontal para Móvil
     st.markdown("""
         <style>
-        .sticky-top { position: sticky; top: 0; background: white; z-index: 1000; padding: 5px 0; border-bottom: 2px solid #FF8C00; }
+        /* Contenedor principal del Centro de Control y Encabezado */
+        .sticky-top { 
+            position: sticky; 
+            top: 0; 
+            background: white; 
+            z-index: 1001; 
+            padding: 5px 0; 
+            border-bottom: 2px solid #FF8C00; 
+        }
+        /* Estética de métricas compactas */
         .metric-small { font-size: 13px; font-weight: bold; color: #555; line-height: 1.1; text-align: left; }
         .pct-val { font-size: 15px; color: #FF8C00; font-weight: bold; }
-        .scroll-area { max-height: 550px; overflow-y: auto; overflow-x: auto; border: 1px solid #eee; }
-        /* Evita que las columnas se apilen en celulares y permite scroll lateral */
-        [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; white-space: nowrap; }
-        .stButton>button { height: 38px; font-size: 12px !important; }
+        
+        /* BLOQUE DE PRODUCTOS: Altura fija para ver ~25 líneas y scroll */
+        .scroll-area { 
+            max-height: 65vh; 
+            overflow-y: auto; 
+            overflow-x: auto; 
+            border: 1px solid #eee; 
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        /* Forzar vista matricial en móviles */
+        [data-testid="stHorizontalBlock"] { 
+            flex-wrap: nowrap !important; 
+            white-space: nowrap; 
+        }
+        .stButton>button { height: 35px; font-size: 12px !important; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -270,6 +292,7 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
