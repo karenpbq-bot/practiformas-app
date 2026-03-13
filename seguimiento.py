@@ -143,15 +143,24 @@ def mostrar(supervisor_id=None):
     # El botón de exportación se genera aquí, después de cargar 'segs' y 'prods_filt'
     with st.expander("🛠️ 2. HERRAMIENTAS, PONDERACIÓN E IMPORTACIÓN", expanded=False):
         with t3:
+            archivo_excel = st.file_uploader("📥 Cargar Seguimiento Excel", type=["xlsx"])
+            # ... (Toda tu lógica de importación rápida que ya tienes) ...
+
+            # --- SOLO COLOCA ESTO AL FINAL DE T3 ---
             st.divider()
+            st.write("📤 **Exportar Reporte Maestro**")
             df_exp = prods_filt.copy().rename(columns={'proyecto_id': 'Id Proyecto', 'ubicacion': 'Ubicacion', 'tipo': 'Tipo', 'ctd': 'Ctd'})
             for h in HITOS_LIST:
                 df_exp[h] = df_exp['id'].apply(lambda x: segs[(segs['producto_id']==x) & (segs['hito']==h)]['fecha'].iloc[0] if not segs[(segs['producto_id']==x) & (segs['hito']==h)].empty else "")
+            
             output_exp = io.BytesIO()
             with pd.ExcelWriter(output_exp, engine='openpyxl') as writer:
                 df_exp[['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST].to_excel(writer, index=False, sheet_name='Seguimiento')
-            st.download_button(label="📥 DESCARGAR SEGUIMIENTO EXCEL", data=output_exp.getvalue(), file_name=f"Seguimiento_{sel_p_nom}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-
+            
+            st.download_button(label="📥 DESCARGAR EXCEL", data=output_exp.getvalue(), file_name=f"Seguimiento_{sel_p_nom}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    # --- COLOCAR AQUÍ (Antes del Sticky) ---
+    pct_total = calcular_avance(prods_all, segs, pesos)
+    pct_parcial = calcular_avance(prods_filt, segs, pesos)
     # =========================================================
     # 4. CENTRO DE CONTROL COMPACTO (STICKY)
     # =========================================================
@@ -206,3 +215,4 @@ def mostrar(supervisor_id=None):
             render_prods(g)
     else: render_prods(prods_filt)
     st.markdown('</div>', unsafe_allow_html=True)
+
