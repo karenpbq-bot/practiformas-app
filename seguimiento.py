@@ -49,16 +49,53 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
 # 3. INTERFAZ PRINCIPAL
 # =========================================================
 def mostrar(supervisor_id=None):
-    # CSS Optimizado: Compacto, Fijo y con Scroll Horizontal para Móvil
+    # CSS de Alta Densidad: Compacto y Realmente Fijo
     st.markdown("""
         <style>
-        .sticky-top { position: sticky; top: 0; background: white; z-index: 1000; padding: 5px 0; border-bottom: 2px solid #FF8C00; }
-        .metric-small { font-size: 13px; font-weight: bold; color: #555; line-height: 1.1; text-align: left; }
-        .pct-val { font-size: 15px; color: #FF8C00; font-weight: bold; }
-        .scroll-area { max-height: 550px; overflow-y: auto; overflow-x: auto; border: 1px solid #eee; }
-        /* Evita que las columnas se apilen en celulares y permite scroll lateral */
-        [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; white-space: nowrap; }
-        .stButton>button { height: 38px; font-size: 12px !important; }
+        /* 1. Reducción de márgenes globales para evitar dispersión */
+        .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+        
+        /* 2. Contenedor STICKY para el Centro de Control y Encabezado */
+        .sticky-top { 
+            position: sticky; 
+            top: 0; 
+            background: white; 
+            z-index: 999; 
+            border-bottom: 3px solid #FF8C00;
+            padding-bottom: 10px;
+        }
+
+        /* 3. Reducción de espacios entre columnas (Gaps) */
+        [data-testid="column"] {
+            padding: 0px 2px !important;
+            margin: 0px !important;
+        }
+
+        /* 4. Métricas Compactas */
+        .metric-small { font-size: 11px; font-weight: bold; color: #555; line-height: 1; }
+        .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
+
+        /* 5. Área de productos con altura fija y scroll */
+        .scroll-area { 
+            height: 600px; 
+            overflow-y: auto !important; 
+            overflow-x: auto !important; 
+            border: 1px solid #eee;
+            padding-top: 10px;
+        }
+
+        /* 6. Forzar que las filas no se rompan (Mantenimiento de Matriz) */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+            align-items: center;
+        }
+        
+        /* 7. Botones más pequeños para ganar espacio */
+        .stButton>button { 
+            height: 28px !important; 
+            padding: 0px 5px !important;
+            font-size: 10px !important;
+        }
         </style>
     """, unsafe_allow_html=True)
     
@@ -270,6 +307,7 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
