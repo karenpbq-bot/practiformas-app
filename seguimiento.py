@@ -19,7 +19,7 @@ def obtener_fecha_formateada():
     return datetime.now().strftime("%d/%m/%Y")
 
 # =========================================================
-# 2. LÓGICA DE CASCADA (RESTAURADA Y SEGURA)
+# 2. LÓGICA DE CASCADA (REGISTRO ATÓMICO)
 # =========================================================
 def registrar_hitos_cascada(p_id, hito_final, fecha_str):
     supabase = conectar()
@@ -27,7 +27,7 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
         idx_limite = HITOS_LIST.index(hito_final)
         hitos_a_marcar = HITOS_LIST[:idx_limite + 1]
         for h in hitos_a_marcar:
-            # UPSERT: Preserva si ya existe, inserta si no.
+            # UPSERT: Mantiene fecha si ya existe, crea si es nuevo.
             supabase.table("seguimiento").upsert({
                 "producto_id": int(p_id), 
                 "hito": h, 
@@ -40,12 +40,12 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
 # 3. INTERFAZ PRINCIPAL
 # =========================================================
 def mostrar(supervisor_id=None):
-    # Inyección de CSS para Sticky Header y Scroll Area Real
+    # CSS para Sticky Header, Scroll y Estética de Métricas
     st.markdown("""
         <style>
         .sticky-top { position: sticky; top: 0; background: white; z-index: 1000; padding: 10px 0; border-bottom: 3px solid #FF8C00; }
         .scroll-area { max-height: 600px; overflow-y: auto; overflow-x: hidden; border: 1px solid #eee; padding: 10px; border-radius: 5px; }
-        .metric-box { background-color: #f8f9fa; padding: 10px; border-radius: 5px; text-align: center; border: 1px solid #dee2e6; }
+        .metric-box { background-color: #f8f9fa; padding: 10px; border-radius: 5px; text-align: center; border: 1px solid #dee2e6; margin-bottom: 5px; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -53,12 +53,12 @@ def mostrar(supervisor_id=None):
     supabase = conectar()
 
     # --- BLOQUE 1 (PLEGABLE): SELECCIÓN DE PROYECTO ---
-    with st.expander("📁 SELECCIÓN DE PROYECTO", expanded=True):
+    with st.expander("📁 1. SELECCIÓN DE PROYECTO", expanded=True):
         c1, c2, c3 = st.columns([2, 2, 1])
-        bus_p = c1.text_input("🔍 Buscar proyecto por palabra clave...", key="bus_seg_proy")
+        bus_p = c1.text_input("🔍 Buscar proyecto o cliente...", key="bus_seg_proy")
         df_p = obtener_proyectos(bus_p, supervisor_id=supervisor_id)
         
-        solo_activos = c3.toggle("Solo proyectos activos", value=True)
+        solo_activos = c3.toggle("Solo activos", value=True)
         if solo_activos and not df_p.empty:
             df_p = df_p[df_p['estatus'] == 'Activo']
 
@@ -69,80 +69,54 @@ def mostrar(supervisor_id=None):
         sel_p_nom = c2.selectbox("Elija Proyecto:", ["Seleccione..."] + list(opciones.keys()))
 
     if sel_p_nom == "Seleccione...":
-        st.info("💡 Seleccione un proyecto en el Bloque 1."); return
+        st.info("💡 Por favor, seleccione un proyecto para cargar la matriz."); return
 
     id_p = opciones[sel_p_nom]
     p_data = df_p[df_p['id'] == id_p].iloc[0]
 
-    # --- BLOQUE 2 (PLEGABLE): HERRAMIENTAS, PONDERACIÓN E IMPORTACIÓN ---
-    with st.expander("🛠️ CONFIGURACIÓN AVANZADA, PONDERACIÓN E IMPORTACIÓN", expanded=False):
-        t1, t2, t3 = st.tabs(["📊 Ponderación de Etapas", "🔍 Filtros de Matriz", "📥 Importar/Exportar"])
+    # --- BLOQUE 2 (PLEGABLE): CONFIGURACIÓN, PONDERACIÓN E IMPORTACIÓN ---
+    with st.expander("🛠️ 2. HERRAMIENTAS, PONDERACIÓN E IMPORTACIÓN", expanded=False):
+        t1, t2, t3 = st.tabs(["⚖️ Ponderación de Etapas", "🔍 Filtros de Matriz", "📥 Importar Avances"])
         
         with t1:
-            st.write("⚖️ **Distribución de Esfuerzo por Etapa** (Debe sumar 100%)")
+            st.write("Ajuste el peso (%) de cada etapa según el esfuerzo real:")
             cols_w = st.columns(4)
-            pesos = {}
-            default_w = 12.5 # Equitativo
-            for i, h in enumerate(HITOS_LIST):
-                pesos[h] = cols_w[i % 4].number_input(f"{h} (%)", value=default_w, step=0.5, key=f"w_{h}")
-            
-            suma_w = sum(pesos.values())
-            if suma_w != 100:
-                st.warning(f"⚠️ La suma actual es {suma_w}%. Debe ser 100% para cálculos precisos.")
+            pesos = {h: cols_w[i % 4].number_input(f"{h} (%)", value=12.5, step=0.5, key=f"w_{h}") for i, h in enumerate(HITOS_LIST)}
+            if sum(pesos.values()) != 100:
+                st.warning(f"⚠️ La suma actual es {sum(pesos.values())}%. Ajuste para llegar a 100%.")
 
         with t2:
             f1, f2, f3 = st.columns(3)
             opciones_filtro = {"Sin grupo": None, "Ubicación": "ubicacion", "Tipo": "tipo"}
-            columna_tecnica = opciones_filtro[f1.selectbox("📂 Agrupar matriz por:", list(opciones_filtro.keys()))]
+            columna_tecnica = opciones_filtro[f1.selectbox("📂 Agrupar por:", list(opciones_filtro.keys()))]
             bus_capa1 = f2.text_input("🔍 Filtro Primario (Zona/Tipo):")
             bus_capa2 = f3.text_input("🔍 Refinar Búsqueda:")
             
         with t3:
-            c_imp, c_exp = st.columns(2)
-            archivo_excel = c_imp.file_uploader("📥 Cargar Excel de Avance", type=["xlsx"])
-            
-            # Lógica de Importación por Atributos (Ubicación, Tipo, ml)
+            archivo_excel = st.file_uploader("📥 Cargar Seguimiento Excel", type=["xlsx"])
             if archivo_excel:
                 df_imp = pd.read_excel(archivo_excel)
-                # CÓDIGO NUEVO PARA EL MATCH
-                if c_imp.button("🚀 Procesar Importación por Atributos"):
+                df_imp.columns = [str(c).lower().replace('ó','o').replace('á','a').strip() for c in df_imp.columns]
+                
+                if st.button("🚀 Procesar Importación Inteligente"):
                     prods_db = supabase.table("productos").select("id, ubicacion, tipo, ml").eq("proyecto_id", id_p).execute()
                     prods_df = pd.DataFrame(prods_db.data)
-    
-                    # CORRECCIÓN 1: Normalizamos todas las columnas del Excel a minúsculas y sin tildes 
-                    # para que coincidan con 'ubicacion', 'tipo' y 'ml' sin importar cómo se escribió.
-                    df_imp.columns = [str(c).lower().replace('ó','o').replace('á','a').strip() for c in df_imp.columns]
-    
                     count = 0
                     for _, row_ex in df_imp.iterrows():
-                    # CORRECCIÓN 2: Match robusto. Usamos .str.lower() y .strip() en ambos lados
-                    # y un margen de error (abs < 0.05) para los metros lineales.
-                    match = prods_df[
-                        (prods_df['ubicacion'].astype(str).str.lower().str.strip() == str(row_ex.get('ubicacion','')).lower().strip()) & 
-                        (prods_df['tipo'].astype(str).str.lower().str.strip() == str(row_ex.get('tipo','')).lower().strip()) & 
-                        (abs(prods_df['ml'] - float(row_ex.get('ml', 0))) < 0.05)
-                    ]
-        
-                    # CORRECCIÓN 3: Identificación dinámica del hito más avanzado en el Excel
-                    hito_encontrado = None
-                    for h in reversed(HITOS_LIST):
-                        # Normalizamos el nombre del hito para buscarlo en el Excel (ej: "diseñado" -> "disenado")
-                        col_excel = h.lower().replace('ñ','n').replace('á','a').replace('é','e').replace('í','i').replace('ó','o').replace('ú','u')
-                        val_excel = str(row_ex.get(col_excel, row_ex.get(h, ""))).upper()
-                        if val_excel not in ["", "NAN", "NO", "NONE"]:
-                            hito_encontrado = h
-                            break
-        
-                    if not match.empty and hito_encontrado:
-                        registrar_hitos_cascada(match.iloc[0]['id'], hito_encontrado, obtener_fecha_formateada())
-                        count += 1
-    
-                # CORRECCIÓN 4: st.rerun() es vital aquí para que la matriz lea los nuevos datos de la nube
-                st.success(f"✅ Se actualizaron {count} productos."); st.rerun()
-                            
-            # Exportación (Fiel a la vista)
-            if c_exp.button("📤 Preparar Excel para Descarga"):
-                st.info("Función de exportación lista en el panel principal.")
+                        match = prods_df[
+                            (prods_df['ubicacion'].astype(str).str.lower().str.strip() == str(row_ex.get('ubicacion','')).lower().strip()) & 
+                            (prods_df['tipo'].astype(str).str.lower().str.strip() == str(row_ex.get('tipo','')).lower().strip()) & 
+                            (abs(prods_df['ml'] - float(row_ex.get('ml', 0))) < 0.05)
+                        ]
+                        hito_ex = None
+                        for h in reversed(HITOS_LIST):
+                            col_ex = h.lower().replace('ñ','n').replace('ó','o').replace('á','a')
+                            if str(row_ex.get(col_ex, "")).upper() not in ["", "NAN", "NO", "NONE"]:
+                                hito_ex = h; break
+                        if not match.empty and hito_ex:
+                            registrar_hitos_cascada(match.iloc[0]['id'], hito_ex, obtener_fecha_formateada())
+                            count += 1
+                    st.success(f"✅ {count} productos actualizados."); st.rerun()
 
         st.divider()
         nota_proy = st.text_area("📝 Notas u Observaciones del Proyecto:", value=p_data.get('partida', ''))
@@ -150,160 +124,104 @@ def mostrar(supervisor_id=None):
     # --- CARGA DE DATOS ---
     res_base = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
     prods_all = pd.DataFrame(res_base.data)
-    
     ids_list = prods_all['id'].tolist() if not prods_all.empty else []
     segs_res = supabase.table("seguimiento").select("*").in_("producto_id", ids_list).execute()
     segs = pd.DataFrame(segs_res.data) if segs_res.data else pd.DataFrame(columns=['producto_id','hito','fecha','observaciones'])
 
-    # Aplicación de Filtros (Capa 2 y 3)
+    # Aplicación de Capas de Filtro
     prods_filt = prods_all.copy()
     if not prods_filt.empty:
         if bus_capa1: prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa1, case=False) | prods_filt['tipo'].str.contains(bus_capa1, case=False)]
         if bus_capa2: prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa2, case=False) | prods_filt['tipo'].str.contains(bus_capa2, case=False)]
 
-    # --- CÁLCULO DE AVANCES (TOTAL Y PARCIAL) ---
-    def calcular_pct(df_muebles, df_segs, tabla_pesos):
-        if df_muebles.empty: return 0.0
-        total_puntos_posibles = len(df_muebles) * 100
-        puntos_obtenidos = 0
-        for _, m in df_muebles.iterrows():
-            hitos_hechos = df_segs[df_segs['producto_id'] == m['id']]['hito'].tolist()
-            puntos_obtenidos += sum([tabla_pesos.get(h, 0) for h in hitos_hechos])
-        return round((puntos_obtenidos / total_puntos_posibles) * 100, 2)
+    # --- LÓGICA DE AVANCES % (TOTAL Y FILTRADO) ---
+    def calcular_avance(df_m, df_s, t_pesos):
+        if df_m.empty: return 0.0
+        puntos = 0
+        for _, m in df_m.iterrows():
+            hechos = df_s[df_s['producto_id'] == m['id']]['hito'].tolist()
+            puntos += sum([t_pesos.get(h, 0) for h in hechos])
+        return round(puntos / len(df_m), 2)
 
-    pct_total = calcular_pct(prods_all, segs, pesos)
-    pct_parcial = calcular_pct(prods_filt, segs, pesos)
+    pct_total = calcular_avance(prods_all, segs, pesos)
+    pct_parcial = calcular_avance(prods_filt, segs, pesos)
 
     # =========================================================
     # 4. ACCIONES GLOBALES E INDICADORES (STICKY)
     # =========================================================
-    # Contenedor Sticky que agrupa Acciones, Métricas y Encabezado
     st.markdown('<div class="sticky-top">', unsafe_allow_html=True)
     
     # Fila 1: Acciones
-    a1, a2, a3, a4 = st.columns([1.5, 1.2, 1.2, 1.5])
-    fecha_reg = a1.date_input("📅 Fecha de Registro:", datetime.now())
-    
+    a1, a2, a3 = st.columns([1.5, 1.5, 2])
+    fecha_reg = a1.date_input("📅 Fecha Registro:", datetime.now())
     if a2.button("💾 GUARDAR AVANCE", use_container_width=True, type="primary"):
-        actualizar_avance_real(id_p) # Actualiza el % en tabla proyectos
+        actualizar_avance_real(id_p)
         ahora = datetime.now()
-        supabase.table("cierres_diarios").insert({
-            "proyecto_id": id_p, "fecha": ahora.strftime("%d/%m/%Y"), 
-            "hora": ahora.strftime("%H:%M:%S"), "cerrado_por": st.session_state.get('id_usuario', 0)
-        }).execute()
-        # Guardar notas también
+        supabase.table("cierres_diarios").insert({"proyecto_id": id_p, "fecha": ahora.strftime("%d/%m/%Y"), "hora": ahora.strftime("%H:%M:%S"), "cerrado_por": st.session_state.get('id_usuario', 0)}).execute()
         supabase.table("proyectos").update({"partida": nota_proy, "avance": pct_total}).eq("id", id_p).execute()
-        st.success("Cierre guardado con éxito."); st.rerun()
+        st.success("Avance guardado."); st.rerun()
 
-    # --- BOTON DE EXPORTAR - EXPORTACIÓN CORREGIDA (Formato Seguimiento_Eliza Maestro) ---
-    df_exp = prods_filt.copy()
-    
-    # Renombrar columnas para coincidir exactamente con el formato del archivo maestro
-    df_exp = df_exp.rename(columns={
-        'proyecto_id': 'Id Proyecto',
-        'ubicacion': 'Ubicacion',
-        'tipo': 'Tipo',
-        'ctd': 'Ctd'
-    })
-
-    # Llenar las columnas de hitos con la fecha grabada en la base de datos
+    # Exportación con Formato Maestro (ñ, tildes y columnas)
+    df_exp = prods_filt.copy().rename(columns={'proyecto_id': 'Id Proyecto', 'ubicacion': 'Ubicacion', 'tipo': 'Tipo', 'ctd': 'Ctd'})
     for h in HITOS_LIST:
-        df_exp[h] = df_exp['id'].apply(
-            lambda x: segs[(segs['producto_id'] == x) & (segs['hito'] == h)]['fecha'].iloc[0] 
-            if not segs[(segs['producto_id'] == x) & (segs['hito'] == h)].empty else ""
-        )
-    
-    # Seleccionar y ordenar las columnas según el estándar requerido
-    columnas_formato = ['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST
-    df_exp_final = df_exp[columnas_formato]
-    
-    # Generar el archivo Excel usando el motor openpyxl para soporte total de caracteres especiales
+        df_exp[h] = df_exp['id'].apply(lambda x: segs[(segs['producto_id']==x) & (segs['hito']==h)]['fecha'].iloc[0] if not segs[(segs['producto_id']==x) & (segs['hito']==h)].empty else "")
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_exp_final.to_excel(writer, index=False, sheet_name='Seguimiento')
-        
-    # Botón de descarga con el MIME type correcto para Excel (.xlsx)
-    a3.download_button(
-        label="📥 EXPORTAR SEGUIMIENTO",
-        data=output.getvalue(),
-        file_name=f"Seguimiento_{sel_p_nom}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
-    )
+        df_exp[['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST].to_excel(writer, index=False, sheet_name='Seguimiento')
+    a3.download_button(label="📥 EXPORTAR SEGUIMIENTO", data=output.getvalue(), file_name=f"Seguimiento_{sel_p_nom}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
-    # Fila 2: Indicadores de Avance
+    # Fila 2: Indicadores de Avance % (Justo encima del encabezado)
     m1, m2 = st.columns(2)
-    m1.markdown(f"<div class='metric-box'><b>% AVANCE TOTAL PROYECTO</b><br><span style='font-size:24px; color:#FF8C00;'>{pct_total}%</span></div>", unsafe_allow_html=True)
-    m2.markdown(f"<div class='metric-box'><b>% AVANCE SELECCIÓN (FILTRADO)</b><br><span style='font-size:24px; color:#2E86C1;'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
+    m1.markdown(f"<div class='metric-box'><b>% AVANCE TOTAL PROYECTO</b><br><span style='font-size:22px; color:#FF8C00;'>{pct_total}%</span></div>", unsafe_allow_html=True)
+    m2.markdown(f"<div class='metric-box'><b>% AVANCE SELECCIÓN (FILTRO)</b><br><span style='font-size:22px; color:#2E86C1;'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
 
-    st.write("") # Espaciador
-
-    # Fila 3: Encabezado Matricial
+    # Fila 3: Encabezado de Matriz
     cols_h = st.columns([3] + [0.7]*8 + [2])
     cols_h[0].write("**Producto / Medida**")
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
-            if st.button("✅", key=f"btn_all_{hito}"):
-                for p_id in prods_filt['id'].tolist(): registrar_hitos_cascada(p_id, hito, fecha_reg.strftime("%d/%m/%Y"))
+            if st.button("✅", key=f"bk_{hito}"):
+                for pid in prods_filt['id'].tolist(): registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
-    cols_h[-1].write("**Observación**")
+    cols_h[-1].write("**Nota**")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================
-    # 5. ÁREA DE SCROLL Y FILAS
+    # 5. MATRIZ DE PRODUCTOS (SCROLL)
     # =========================================================
     st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
     
-    def render_prods(df_items):
+    def render_prods(df_render):
         rol = st.session_state.rol
-        for _, prod in df_items.iterrows():
+        for _, prod in df_render.iterrows():
             cols = st.columns([3] + [0.7]*8 + [2])
             cols[0].markdown(f"**{prod['ubicacion']}** {prod['tipo']} `{prod['ml']} ml`", unsafe_allow_html=True)
             
             for i, hito in enumerate(HITOS_LIST):
-                seg_match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
-                en_db = not seg_match.empty
-                
-                # CORRECCIÓN: Validamos contra TODA la lista de hitos posteriores (no solo el siguiente)
-                # Esto asegura que si saltas etapas, las anteriores queden bloqueadas correctamente.
+                match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
+                en_db = not match.empty
                 posteriores = HITOS_LIST[i+1:]
                 tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'].isin(posteriores))].empty
-                
-                rol = st.session_state.rol
-                # Bloqueo: Supervisor no desmarca, y nadie desmarca si hay un avance más adelante (regla 8 a 1).
                 bloqueo = (en_db and rol == "Supervisor") or (en_db and tiene_posterior)
 
                 if cols[i+1].checkbox("Ok", key=f"c_{prod['id']}_{hito}", value=en_db, label_visibility="collapsed", disabled=bloqueo):
                     if not en_db:
-                        # Al marcar, la función cascada guarda este y todos los previos en la DB
                         registrar_hitos_cascada(prod['id'], hito, fecha_reg.strftime("%d/%m/%Y"))
-                        st.rerun() # Refresca para pintar todos los nuevos checks de la cascada
+                        st.rerun()
                 elif en_db and not tiene_posterior and rol != "Supervisor":
-                    # Desmarcado permitido para Admin/Gerente solo si es el último hito de la cadena
-                    supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
-                    st.rerun()
-                elif en_db and not tiene_posterior and rol != "Supervisor":
-                    # Borrado solo permitido para Admin/Gerente si no hay posteriores
                     supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
                     st.rerun()
             
-            # Notas por producto (Inline)
-            obs_db = seg_match['observaciones'].iloc[0] if en_db and 'observaciones' in seg_match.columns else ""
-            n_key = f"o_{prod['id']}"
-            new_obs = cols[-1].text_input("Nota", value=obs_db, key=n_key, label_visibility="collapsed")
-            if new_obs != obs_db:
-                # Actualizar observaciones requiere que el hito exista
-                if en_db:
-                    supabase.table("seguimiento").update({"observaciones": new_obs}).eq("producto_id", prod['id']).eq("hito", HITOS_LIST[0]).execute()
+            obs = match['observaciones'].iloc[0] if en_db and 'observaciones' in match.columns else ""
+            cols[-1].text_input("N", value=obs, key=f"o_{prod['id']}", label_visibility="collapsed")
 
     if columna_tecnica:
-        for nombre, grupo in prods_filt.groupby(columna_tecnica):
-            st.markdown(f"#### 📂 {nombre}")
-            render_prods(grupo)
+        for n, g in prods_filt.groupby(columna_tecnica):
+            st.markdown(f"#### 📂 {n}"); render_prods(g)
     else:
         render_prods(prods_filt)
-    
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 
