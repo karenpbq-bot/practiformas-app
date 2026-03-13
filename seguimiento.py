@@ -179,66 +179,69 @@ def mostrar(supervisor_id=None):
         puntos = sum(sum(t_w.get(h, 0) for h in df_s[df_s['producto_id'] == m['id']]['hito'].tolist()) for _, m in df_m.iterrows())
         return round(puntos / len(df_m), 2)
 
-    # === 1. DEFINICIÓN DE LA FECHA (DEBE IR AQUÍ PRIMERO) ===
-    # Esto evita el NameError porque define la variable antes de usarla
+    # === 1. DEFINICIÓN DE LA FECHA Y CÁLCULOS (ESTRICTO) ===
+    # Colocamos el input primero para evitar el NameError
     fecha_reg = st.date_input("F", datetime.now(), label_visibility="collapsed", key="f_input_global")
     
-    # === 2. CÁLCULOS Y BLINDAJE ===
     pct_total = calcular_avance(prods_all, segs, pesos)
     pct_parcial = calcular_avance(prods_filt, segs, pesos)
+    # BLINDAJE DE FECHA: Día/Mes/Año para Supabase y visualización
     f_str_hoy = fecha_reg.strftime("%d/%m/%Y") 
 
     # =========================================================
-    # 4 y 5. INTERFAZ UNIFICADA (STICKY + MATRIZ)
+    # 4 y 5. INTERFAZ UNIFICADA (SIN ESPACIOS)
     # =========================================================
     
-    # Inyectamos el Sticky y el inicio del Scroll
+    # Unificamos métricas y estilo en un solo bloque CSS/HTML
     st.markdown(f"""
-        <div class="sticky-top">
-            <div style="display: flex; justify-content: space-between; padding: 8px 12px; background: #fff; border-bottom: 1px solid #eee;">
-                <div class='metric-small'>AVANCE TOTAL<br><span class='pct-val'>{pct_total}%</span></div>
-                <div class='metric-small'>AVANCE FILTRO<br><span class='pct-val'>{pct_parcial}%</span></div>
-                <div class='metric-small'>FECHA REGISTRO<br><span style="color:#000;">{f_str_hoy}</span></div>
+        <div class="sticky-top" style="padding: 5px 12px; border-bottom: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <div class='metric-small'>TOTAL: <span class='pct-val'>{pct_total}%</span></div>
+                <div class='metric-small'>FILTRO: <span class='pct-val'>{pct_parcial}%</span></div>
+                <div class='metric-small'>FECHA: <span style="color:#000;">{f_str_hoy}</span></div>
             </div>
         </div>
-        <div class="scroll-area">
     """, unsafe_allow_html=True)
 
-    # Botón de Guardado y Encabezado de Columnas
-    c_save = st.columns([3, 1.2])
-    with c_save[1]:
-        if st.button("💾 GUARDAR TODO", use_container_width=True, type="primary", key="btn_final_save"):
+    # Botón GUARDAR AVANCE (Renombrado y pegado al encabezado)
+    c_acc = st.columns([2.8, 1.2])
+    with c_acc[1]:
+        if st.button("💾 GUARDAR AVANCE", use_container_width=True, type="primary", key="btn_save_final"):
             actualizar_avance_real(id_p)
             nota_actual = p_data.get('partida', '')
             supabase.table("proyectos").update({"partida": nota_actual, "avance": pct_total}).eq("id", id_p).execute()
-            st.success("¡Datos Guardados!"); st.rerun()
+            st.success("¡Avance Guardado!"); st.rerun()
 
+    # Encabezado Naranja - Renombrado a "Producto / ml"
+    st.markdown('<div class="sticky-top" style="border-top:none; border-bottom:1px solid #FF8C00; margin-top:-10px;">', unsafe_allow_html=True)
     cols_h = st.columns([3] + [0.7]*8 + [2])
-    cols_h[0].markdown("<div style='font-size:11px; font-weight:bold;'>Mueble / ml</div>", unsafe_allow_html=True)
+    cols_h[0].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Producto / ml</div>", unsafe_allow_html=True)
     
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
-            if st.button("✅", key=f"ms_{hito}"):
+            if st.button("✅", key=f"ms_fin_{hito}"):
                 for pid in prods_filt['id'].tolist(): 
                     registrar_hitos_cascada(pid, hito, f_str_hoy)
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
-    cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold;'>Nota</div>", unsafe_allow_html=True)
+    cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Nota</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- FUNCIÓN DE RENDERIZADO (Dentro del contenedor de Scroll) ---
+    # --- INICIO DE MATRIZ DE PRODUCTOS (SCROLL) ---
+    st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
+
     def render_final(p_row, s_data, r_usr, f_formato):
         cs = st.columns([3] + [0.7]*8 + [2])
-        # Info del Mueble
-        cs[0].markdown(f"<div style='font-size:10px; line-height:1;'><b>{p_row['ubicacion']}</b><br>{p_row['tipo']} ({p_row['ml']}m)</div>", unsafe_allow_html=True)
+        # Info compacta del Producto
+        cs[0].markdown(f"<div style='font-size:10px; line-height:1.1;'><b>{p_row['ubicacion']}</b><br>{p_row['tipo']} ({p_row['ml']}m)</div>", unsafe_allow_html=True)
         
         for i, h in enumerate(HITOS_LIST):
             m = s_data[(s_data['producto_id'] == p_row['id']) & (s_data['hito'] == h)]
             en_db = not m.empty
-            # Seguridad: Bloqueo si hay hitos posteriores o si es Supervisor intentando desmarcar
             tiene_post = not s_data[(s_data['producto_id'] == p_row['id']) & (s_data['hito'].isin(HITOS_LIST[i+1:]))].empty
             bloqueo = (en_db and r_usr == "Supervisor") or (en_db and tiene_post)
 
-            if cs[i+1].checkbox(" ", key=f"mat_{p_row['id']}_{h}", value=en_db, disabled=bloqueo):
+            if cs[i+1].checkbox(" ", key=f"v_fin_{p_row['id']}_{h}", value=en_db, disabled=bloqueo):
                 if not en_db: 
                     registrar_hitos_cascada(p_row['id'], h, f_formato)
                     st.rerun()
@@ -246,21 +249,19 @@ def mostrar(supervisor_id=None):
                 supabase.table("seguimiento").delete().eq("producto_id", p_row['id']).eq("hito", h).execute()
                 st.rerun()
         
-        # Nota/Observación
+        # Campo de Nota N
         obs = m['observaciones'].iloc[0] if en_db and 'observaciones' in m.columns else ""
-        cs[-1].text_input("N", value=obs, key=f"obs_f_{p_row['id']}", label_visibility="collapsed")
+        cs[-1].text_input("N", value=obs, key=f"o_fin_{p_row['id']}", label_visibility="collapsed")
 
-    # --- EJECUCIÓN DEL RENDERIZADO POR GRUPOS O LISTA ---
+    # Renderizado por grupos o lista simple
     rol_usr = st.session_state.rol
     c_tec = st.session_state.columna_tecnica
     
     if c_tec:
         for n, g in prods_filt.groupby(c_tec):
-            st.markdown(f"<div style='background:#f1f1f1; padding:2px 5px; font-size:10px; font-weight:bold; border-left: 3px solid #FF8C00;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background:#f9f9f9; padding:2px 8px; font-size:10px; font-weight:bold; border-left:3px solid #FF8C00;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
             for _, r in g.iterrows(): render_final(r, segs, rol_usr, f_str_hoy)
     else:
         for _, r in prods_filt.iterrows(): render_final(r, segs, rol_usr, f_str_hoy)
 
-    # CIERRE FINAL DEL CONTENEDOR DE SCROLL
     st.markdown('</div>', unsafe_allow_html=True)
-
