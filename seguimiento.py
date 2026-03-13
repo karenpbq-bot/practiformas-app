@@ -103,14 +103,7 @@ def mostrar(supervisor_id=None):
 
     id_p = opciones[sel_p_nom]
     p_data = df_p[df_p['id'] == id_p].iloc[0]
-
-    # --- CARGA DE DATOS ---
-    res_base = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
-    prods_all = pd.DataFrame(res_base.data)
-    ids_list = prods_all['id'].tolist() if not prods_all.empty else []
-    segs_res = supabase.table("seguimiento").select("*").in_("producto_id", ids_list).execute()
-    segs = pd.DataFrame(segs_res.data) if segs_res.data else pd.DataFrame(columns=['producto_id','hito','fecha','observaciones'])
-
+    
     # IMPORTANTE: También define prods_filt aquí arriba para que las herramientas lo vean
     prods_filt = prods_all.copy()
     if not prods_filt.empty:
@@ -134,7 +127,29 @@ def mostrar(supervisor_id=None):
             columna_tecnica = opciones_filtro[f1.selectbox("📂 Agrupar por:", list(opciones_filtro.keys()))]
             bus_capa1 = f2.text_input("🔍 Filtro Primario (Zona/Tipo):")
             bus_capa2 = f3.text_input("🔍 Refinar Búsqueda:")
+            # --- CARGA DE DATOS ---
+            res_base = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
+            prods_all = pd.DataFrame(res_base.data)
+            ids_list = prods_all['id'].tolist() if not prods_all.empty else []
+            segs_res = supabase.table("seguimiento").select("*").in_("producto_id", ids_list).execute()
+            segs = pd.DataFrame(segs_res.data) if segs_res.data else pd.DataFrame(columns=['producto_id','hito','fecha','observaciones'])
             
+            # Aplicación de Capas de Filtro
+            prods_filt = prods_all.copy()
+            if not prods_filt.empty:
+                if bus_capa1: 
+                    prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa1, case=False) | prods_filt['tipo'].str.contains(bus_capa1, case=False)]
+                if bus_capa2: 
+                    prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa2, case=False) | prods_filt['tipo'].str.contains(bus_capa2, case=False)]
+            # 4. Y calculamos los avances para el Sticky Header
+            def calcular_avance(df_m, df_s, t_pesos):
+                if df_m.empty: return 0.0
+                puntos = sum(sum(t_pesos.get(h, 0) for h in df_s[df_s['producto_id'] == m['id']]['hito'].tolist()) for _, m in df_m.iterrows())
+                return round(puntos / len(df_m), 2)
+
+            pct_total = calcular_avance(prods_all, segs, pesos)
+            pct_parcial = calcular_avance(prods_filt, segs, pesos)
+
         with t3:
             archivo_excel = st.file_uploader("📥 Cargar Seguimiento Excel", type=["xlsx"])
             if archivo_excel:
@@ -216,12 +231,6 @@ def mostrar(supervisor_id=None):
                 use_container_width=True
             )
 
-    # Aplicación de Capas de Filtro
-    prods_filt = prods_all.copy()
-    if not prods_filt.empty:
-        if bus_capa1: prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa1, case=False) | prods_filt['tipo'].str.contains(bus_capa1, case=False)]
-        if bus_capa2: prods_filt = prods_filt[prods_filt['ubicacion'].str.contains(bus_capa2, case=False) | prods_filt['tipo'].str.contains(bus_capa2, case=False)]
-
     # --- LÓGICA DE AVANCES % (TOTAL Y FILTRADO) ---
     def calcular_avance(df_m, df_s, t_pesos):
         if df_m.empty: return 0.0
@@ -255,22 +264,24 @@ def mostrar(supervisor_id=None):
             supabase.table("proyectos").update({"partida": val_nota, "avance": pct_total}).eq("id", id_p).execute()
             st.success("¡Guardado!"); st.rerun()
 
-    # Fila 2: Encabezado Naranja (Mueble + Iconos ✅)
+    # FILA 2: Encabezado Naranja
     cols_h = st.columns([3] + [0.7]*8 + [2])
     cols_h[0].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Mueble / ml</div>", unsafe_allow_html=True)
     
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
+            # Botón masivo ✅
             if st.button("✅", key=f"btn_massive_{hito}"):
                 for pid in prods_filt['id'].tolist(): 
                     registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
     
-    # La columna de Nota/Observación va FUERA del bucle for
+    # IMPORTANTE: El título de "Nota" debe ir aquí, exactamente en la última columna
     cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Nota</div>", unsafe_allow_html=True)
     
-    st.markdown('</div>', unsafe_allow_html=True) # Cierre exacto del Sticky
+    # PASO CLAVE: Cerramos el Sticky sin dejar espacios
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================
     # 5. MATRIZ DE PRODUCTOS (SCROLL)
@@ -281,8 +292,11 @@ def mostrar(supervisor_id=None):
     def render_prods(df_render):
         rol = st.session_state.rol
         for _, prod in df_render.iterrows():
+            # Usamos la misma proporción de columnas que el encabezado [3, 0.7... , 2]
             cols = st.columns([3] + [0.7]*8 + [2])
-            cols[0].markdown(f"<div style='font-size:11px; line-height:1.2;'><b>{prod['ubicacion']}</b> {prod['tipo']} <br><code style='font-size:10px;'>{prod['ml']} ml</code></div>", unsafe_allow_html=True)
+            
+            # Nombre del mueble ultra-compacto
+            cols[0].markdown(f"<div style='font-size:11px; line-height:1.1;'><b>{prod['ubicacion']}</b> {prod['tipo']} <br><span style='font-size:10px; color:gray;'>{prod['ml']} ml</span></div>", unsafe_allow_html=True)
             
             for i, hito in enumerate(HITOS_LIST):
                 m = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
@@ -312,4 +326,5 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
         
     st.markdown('</div>', unsafe_allow_html=True)
+
 
