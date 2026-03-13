@@ -179,17 +179,20 @@ def mostrar(supervisor_id=None):
         puntos = sum(sum(t_w.get(h, 0) for h in df_s[df_s['producto_id'] == m['id']]['hito'].tolist()) for _, m in df_m.iterrows())
         return round(puntos / len(df_m), 2)
 
-    # === CÁLCULOS PREVIOS (Garantizan que no haya 'aire' entre contenedores) ===
+    # === 1. DEFINICIÓN DE LA FECHA (DEBE IR AQUÍ PRIMERO) ===
+    # Esto evita el NameError porque define la variable antes de usarla
+    fecha_reg = st.date_input("F", datetime.now(), label_visibility="collapsed", key="f_input_global")
+    
+    # === 2. CÁLCULOS Y BLINDAJE ===
     pct_total = calcular_avance(prods_all, segs, pesos)
     pct_parcial = calcular_avance(prods_filt, segs, pesos)
-    # BLINDAJE DE FECHA: Formato Día/Mes/Año para todo el sistema
     f_str_hoy = fecha_reg.strftime("%d/%m/%Y") 
 
     # =========================================================
     # 4 y 5. INTERFAZ UNIFICADA (STICKY + MATRIZ)
     # =========================================================
     
-    # Inyectamos el Sticky y el inicio del Scroll en un solo bloque para eliminar el recuadro vacío
+    # Inyectamos el Sticky y el inicio del Scroll
     st.markdown(f"""
         <div class="sticky-top">
             <div style="display: flex; justify-content: space-between; padding: 8px 12px; background: #fff; border-bottom: 1px solid #eee;">
@@ -260,3 +263,4 @@ def mostrar(supervisor_id=None):
 
     # CIERRE FINAL DEL CONTENEDOR DE SCROLL
     st.markdown('</div>', unsafe_allow_html=True)
+
