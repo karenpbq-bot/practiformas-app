@@ -49,17 +49,14 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
 # 3. INTERFAZ PRINCIPAL
 # =========================================================
 def mostrar(supervisor_id=None):
-  # CSS de Alta Densidad: Elimina espacios muertos y fija encabezado
+  # CSS Profesional de Alta Densidad para Móviles
     st.markdown("""
         <style>
-        /* 1. Colapsar espacios internos de Streamlit para eliminar el cuadro vacío */
-        [data-testid="stVerticalBlock"] > div {
-            gap: 0rem !important;
-            padding-top: 0px !important;
-            padding-bottom: 0px !important;
-        }
+        /* 1. Eliminar márgenes de la aplicación y gaps verticales */
+        .block-container { padding: 1rem 1rem 0rem 1rem !important; max-width: 100% !important; }
+        [data-testid="stVerticalBlock"] > div { gap: 0rem !important; padding: 0px !important; }
         
-        /* 2. Área Fija Superior (Métricas + Encabezado) */
+        /* 2. Centro de Control y Encabezado FIJO */
         .sticky-top { 
             position: sticky; 
             top: 0; 
@@ -67,28 +64,29 @@ def mostrar(supervisor_id=None):
             z-index: 1000; 
             border-bottom: 2px solid #FF8C00;
             padding: 0px !important;
-            margin-bottom: 0px !important;
+            margin: 0px !important;
         }
 
-        /* 3. Área de productos: Pegada al encabezado con altura fija */
+        /* 3. Área de productos: Altura fija y Scroll real */
         .scroll-area { 
             height: 60vh; 
             overflow-y: auto !important; 
             overflow-x: auto !important; 
             border: 1px solid #eee;
-            margin-top: -1px !important; /* Une la lista al encabezado */
+            margin-top: 0px !important;
         }
 
-        /* 4. Métricas y textos miniatura */
-        .metric-small { font-size: 11px; font-weight: bold; color: #666; line-height: 1; }
-        .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
-        
-        /* 5. Forzar matriz horizontal en móviles */
+        /* 4. Forzar vista matricial en celulares (no apilar columnas) */
         [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
             gap: 2px !important;
+            align-items: center;
         }
-        .stButton>button { height: 28px !important; font-size: 10px !important; padding: 0px 5px !important; }
+
+        /* 5. Ajuste de métricas y botones pequeños */
+        .metric-small { font-size: 11px; font-weight: bold; color: #555; line-height: 1; }
+        .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
+        .stButton>button { height: 30px !important; font-size: 10px !important; padding: 0px 5px !important; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -195,10 +193,11 @@ def mostrar(supervisor_id=None):
                     else:
                         st.warning("No se encontraron coincidencias para importar.")
 
-        # --- EXPORTACIÓN REUBICADA (FUERA DEL IF ARCHIVO_EXCEL) ---
+        # --- BOTÓN DE EXPORTACIÓN (REUBICADO) ---
             st.divider()
-            st.write("📤 **Exportar Reporte Maestro**")
-            # El código de exportación se ejecuta aquí para estar siempre disponible
+            st.subheader("📤 Exportar Reporte")
+            
+            # Generamos el Excel basándonos en los filtros actuales de la matriz
             df_exp = prods_filt.copy().rename(columns={'proyecto_id': 'Id Proyecto', 'ubicacion': 'Ubicacion', 'tipo': 'Tipo', 'ctd': 'Ctd'})
             for h in HITOS_LIST:
                 df_exp[h] = df_exp['id'].apply(lambda x: segs[(segs['producto_id']==x) & (segs['hito']==h)]['fecha'].iloc[0] if not segs[(segs['producto_id']==x) & (segs['hito']==h)].empty else "")
@@ -208,10 +207,10 @@ def mostrar(supervisor_id=None):
                 df_exp[['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST].to_excel(writer, index=False, sheet_name='Seguimiento')
             
             st.download_button(
-                label="📥 DESCARGAR EXCEL", 
-                data=output_exp.getvalue(), 
-                file_name=f"Seguimiento_{sel_p_nom}.xlsx", 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                label="📥 DESCARGAR SEGUIMIENTO EXCEL",
+                data=output_exp.getvalue(),
+                file_name=f"Seguimiento_{sel_p_nom}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
@@ -247,35 +246,46 @@ def mostrar(supervisor_id=None):
     
     # FILA 1: Avance T | Avance P | Fecha | Guardar
     c_ctrl = st.columns([1, 1, 1.1, 1.2])
+    
+    # Métricas compactas
     c_ctrl[0].markdown(f"<div class='metric-small'>TOTAL<br><span class='pct-val'>{pct_total}%</span></div>", unsafe_allow_html=True)
     c_ctrl[1].markdown(f"<div class='metric-small'>FILTRO<br><span class='pct-val'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
     
-    with c_ctrl[2]:
+    with c_cont_fecha := c_ctrl[2]:
         fecha_reg = st.date_input("F", datetime.now(), label_visibility="collapsed")
     
-    with c_ctrl[3]:
+    with c_cont_btn := c_ctrl[3]:
         if st.button("💾 GUARDAR", use_container_width=True, type="primary"):
             actualizar_avance_real(id_p)
-            # Nota: Asegúrate de que 'nota_proy' esté definida antes o usa p_data.get('partida','')
+            # Guardamos avance y notas en la tabla proyectos
             supabase.table("proyectos").update({"partida": nota_proy, "avance": pct_total}).eq("id", id_p).execute()
-            st.rerun()
+            # Registro en cierres diarios
+            ahora = datetime.now()
+            supabase.table("cierres_diarios").insert({
+                "proyecto_id": id_p, 
+                "fecha": ahora.strftime("%d/%m/%Y"), 
+                "hora": ahora.strftime("%H:%M:%S"), 
+                "cerrado_por": st.session_state.get('id_usuario', 0)
+            }).execute()
+            st.success("¡Guardado con éxito!"); st.rerun()
 
-    # FILA 2: Encabezado Naranja (Mueble + Iconos ✅)
+    # FILA 2: Encabezado de Matriz Naranja
     cols_h = st.columns([3] + [0.7]*8 + [2])
     cols_h[0].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Mueble / ml</div>", unsafe_allow_html=True)
     
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
-            # Botón masivo ✅
-            if st.button("✅", key=f"bk_all_{hito}"):
-                for pid in prods_filt['id'].tolist(): 
+            # Botón de marcado masivo por columna (Mantiene CASCADA)
+            if st.button("✅", key=f"btn_massive_{hito}"):
+                for pid in prods_filt['id'].tolist():
                     registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
-            
-            cols_h[-1].write("**Nota**")
     
-    # CERRAMOS el área fija - Esto elimina el cuadro vacío al unirlo con el scroll
+    # La columna de Nota en el encabezado
+    cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Observación</div>", unsafe_allow_html=True)
+    
+    # CERRAMOS el área fija - Esto elimina el cuadro vacío al unirlo visualmente al scroll
     st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================
@@ -287,32 +297,48 @@ def mostrar(supervisor_id=None):
         rol = st.session_state.rol
         for _, prod in df_render.iterrows():
             cols = st.columns([3] + [0.7]*8 + [2])
-            cols[0].markdown(f"**{prod['ubicacion']}** {prod['tipo']} `{prod['ml']} ml`", unsafe_allow_html=True)
+            
+            # Nombre del producto compacto
+            cols[0].markdown(f"<div style='font-size:11px; line-height:1.2;'><b>{prod['ubicacion']}</b> {prod['tipo']} <br><code style='font-size:10px;'>{prod['ml']} ml</code></div>", unsafe_allow_html=True)
             
             for i, hito in enumerate(HITOS_LIST):
                 match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
                 en_db = not match.empty
+                
+                # Regla de seguridad: verificar si hay hitos posteriores marcados
                 posteriores = HITOS_LIST[i+1:]
                 tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'].isin(posteriores))].empty
+                
+                # Bloqueo: Supervisor no desmarca, y nadie desmarca si hay avance posterior
                 bloqueo = (en_db and rol == "Supervisor") or (en_db and tiene_posterior)
 
+                # Checkbox con LÓGICA DE CASCADA INTEGRADA
                 if cols[i+1].checkbox("Ok", key=f"c_{prod['id']}_{hito}", value=en_db, label_visibility="collapsed", disabled=bloqueo):
                     if not en_db:
                         registrar_hitos_cascada(prod['id'], hito, fecha_reg.strftime("%d/%m/%Y"))
                         st.rerun()
                 elif en_db and not tiene_posterior and rol != "Supervisor":
+                    # Desmarcado permitido solo para Admin/Gerente si es el último de la cadena
                     supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
                     st.rerun()
             
-            obs = match['observaciones'].iloc[0] if en_db and 'observaciones' in match.columns else ""
-            cols[-1].text_input("N", value=obs, key=f"o_{prod['id']}", label_visibility="collapsed")
+            # Notas por producto (Inline)
+            # Buscamos la observación en el primer hito o en el match actual
+            obs_db = match['observaciones'].iloc[0] if en_db and 'observaciones' in match.columns else ""
+            new_obs = cols[-1].text_input("Nota", value=obs_db, key=f"o_{prod['id']}", label_visibility="collapsed", placeholder="...")
+            
+            # Guardado de nota al cambiar (requiere que el hito esté marcado)
+            if new_obs != obs_db and en_db:
+                supabase.table("seguimiento").update({"observaciones": new_obs}).eq("producto_id", prod['id']).eq("hito", hito).execute()
 
+    # Lógica de renderizado con o sin agrupación
     if columna_tecnica:
         for n, g in prods_filt.groupby(columna_tecnica):
-            st.markdown(f"#### 📂 {n}"); render_prods(g)
+            # Sub-encabezado de grupo compacto sin espacios extra
+            st.markdown(f"<div style='background:#f1f1f1; padding:2px 5px; font-size:11px; font-weight:bold; border-left:3px solid #FF8C00;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
+            render_prods(g)
     else:
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
-
 
