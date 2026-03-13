@@ -179,86 +179,84 @@ def mostrar(supervisor_id=None):
         puntos = sum(sum(t_w.get(h, 0) for h in df_s[df_s['producto_id'] == m['id']]['hito'].tolist()) for _, m in df_m.iterrows())
         return round(puntos / len(df_m), 2)
 
-    # === CÁLCULOS PREVIOS (Fuera del Sticky para no crear espacios) ===
+    # === CÁLCULOS PREVIOS (Garantizan que no haya 'aire' entre contenedores) ===
     pct_total = calcular_avance(prods_all, segs, pesos)
     pct_parcial = calcular_avance(prods_filt, segs, pesos)
+    # BLINDAJE DE FECHA: Formato Día/Mes/Año para todo el sistema
+    f_str_hoy = fecha_reg.strftime("%d/%m/%Y") 
 
     # =========================================================
-    # 4. CENTRO DE CONTROL COMPACTO (STICKY)
+    # 4 y 5. INTERFAZ UNIFICADA (STICKY + MATRIZ)
     # =========================================================
-    st.markdown('<div class="sticky-top">', unsafe_allow_html=True)
     
-    c_ctrl = st.columns([1, 1, 1.1, 1.2])
-    c_ctrl[0].markdown(f"<div class='metric-small'>TOTAL<br><span class='pct-val'>{pct_total}%</span></div>", unsafe_allow_html=True)
-    c_ctrl[1].markdown(f"<div class='metric-small'>FILTRO<br><span class='pct-val'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
-    
-    with c_ctrl[2]: 
-        # Forzamos que el selector de fecha use el formato correcto
-        fecha_reg = st.date_input("F", datetime.now(), label_visibility="collapsed", key="f_sticky_final")
-    
-    with c_ctrl[3]:
-        if st.button("💾 GUARDAR", use_container_width=True, type="primary", key="btn_save_v2"):
+    # Inyectamos el Sticky y el inicio del Scroll en un solo bloque para eliminar el recuadro vacío
+    st.markdown(f"""
+        <div class="sticky-top">
+            <div style="display: flex; justify-content: space-between; padding: 8px 12px; background: #fff; border-bottom: 1px solid #eee;">
+                <div class='metric-small'>AVANCE TOTAL<br><span class='pct-val'>{pct_total}%</span></div>
+                <div class='metric-small'>AVANCE FILTRO<br><span class='pct-val'>{pct_parcial}%</span></div>
+                <div class='metric-small'>FECHA REGISTRO<br><span style="color:#000;">{f_str_hoy}</span></div>
+            </div>
+        </div>
+        <div class="scroll-area">
+    """, unsafe_allow_html=True)
+
+    # Botón de Guardado y Encabezado de Columnas
+    c_save = st.columns([3, 1.2])
+    with c_save[1]:
+        if st.button("💾 GUARDAR TODO", use_container_width=True, type="primary", key="btn_final_save"):
             actualizar_avance_real(id_p)
             nota_actual = p_data.get('partida', '')
             supabase.table("proyectos").update({"partida": nota_actual, "avance": pct_total}).eq("id", id_p).execute()
-            st.success("¡Guardado!"); st.rerun()
+            st.success("¡Datos Guardados!"); st.rerun()
 
     cols_h = st.columns([3] + [0.7]*8 + [2])
-    cols_h[0].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Mueble / ml</div>", unsafe_allow_html=True)
+    cols_h[0].markdown("<div style='font-size:11px; font-weight:bold;'>Mueble / ml</div>", unsafe_allow_html=True)
     
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
-            if st.button("✅", key=f"btn_massive_{hito}"):
-                # Forzamos formato día/mes/año en la carga masiva
-                f_str = fecha_reg.strftime("%d/%m/%Y")
+            if st.button("✅", key=f"ms_{hito}"):
                 for pid in prods_filt['id'].tolist(): 
-                    registrar_hitos_cascada(pid, hito, f_str)
+                    registrar_hitos_cascada(pid, hito, f_str_hoy)
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
-    
-    cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Nota</div>", unsafe_allow_html=True)
-    
-    # CIERRE DEL STICKY
-    st.markdown('</div>', unsafe_allow_html=True) 
+    cols_h[-1].markdown("<div style='font-size:11px; font-weight:bold;'>Nota</div>", unsafe_allow_html=True)
 
-    # =========================================================
-    # 5. MATRIZ DE PRODUCTOS (SCROLL)
-    # =========================================================
-    # UNIÓN HERMÉTICA: Apertura inmediata del div para eliminar el recuadro
-    st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
-
-    # Función de renderizado con formato de fecha forzado
-    def render_fila_optimizada(p, s_df, rol_u, f_actual):
+    # --- FUNCIÓN DE RENDERIZADO (Dentro del contenedor de Scroll) ---
+    def render_final(p_row, s_data, r_usr, f_formato):
         cs = st.columns([3] + [0.7]*8 + [2])
-        cs[0].markdown(f"<div style='font-size:11px; line-height:1.1;'><b>{p['ubicacion']}</b> {p['tipo']} <br><span style='font-size:10px; color:gray;'>{p['ml']} ml</span></div>", unsafe_allow_html=True)
+        # Info del Mueble
+        cs[0].markdown(f"<div style='font-size:10px; line-height:1;'><b>{p_row['ubicacion']}</b><br>{p_row['tipo']} ({p_row['ml']}m)</div>", unsafe_allow_html=True)
         
         for i, h in enumerate(HITOS_LIST):
-            m = s_df[(s_df['producto_id'] == p['id']) & (s_df['hito'] == h)]
+            m = s_data[(s_data['producto_id'] == p_row['id']) & (s_data['hito'] == h)]
             en_db = not m.empty
-            bloqueo = (en_db and rol_u == "Supervisor") or (not s_df[(s_df['producto_id'] == p['id']) & (s_df['hito'].isin(HITOS_LIST[i+1:]))].empty)
+            # Seguridad: Bloqueo si hay hitos posteriores o si es Supervisor intentando desmarcar
+            tiene_post = not s_data[(s_data['producto_id'] == p_row['id']) & (s_data['hito'].isin(HITOS_LIST[i+1:]))].empty
+            bloqueo = (en_db and r_usr == "Supervisor") or (en_db and tiene_post)
 
-            if cs[i+1].checkbox("Ok", key=f"ch_{p['id']}_{h}", value=en_db, label_visibility="collapsed", disabled=bloqueo):
+            if cs[i+1].checkbox(" ", key=f"mat_{p_row['id']}_{h}", value=en_db, disabled=bloqueo):
                 if not en_db: 
-                    # Forzamos formato día/mes/año en el checkbox
-                    registrar_hitos_cascada(p['id'], h, f_actual.strftime("%d/%m/%Y"))
+                    registrar_hitos_cascada(p_row['id'], h, f_formato)
                     st.rerun()
-            elif en_db and not bloqueo and rol_u != "Supervisor":
-                supabase.table("seguimiento").delete().eq("producto_id", p['id']).eq("hito", h).execute()
+            elif en_db and not bloqueo and r_usr != "Supervisor":
+                supabase.table("seguimiento").delete().eq("producto_id", p_row['id']).eq("hito", h).execute()
                 st.rerun()
         
-        # Nota individual
+        # Nota/Observación
         obs = m['observaciones'].iloc[0] if en_db and 'observaciones' in m.columns else ""
-        cs[-1].text_input("N", value=obs, key=f"obs_{p['id']}", label_visibility="collapsed")
+        cs[-1].text_input("N", value=obs, key=f"obs_f_{p_row['id']}", label_visibility="collapsed")
 
-    # Renderizado final
-    r_act = st.session_state.rol
+    # --- EJECUCIÓN DEL RENDERIZADO POR GRUPOS O LISTA ---
+    rol_usr = st.session_state.rol
     c_tec = st.session_state.columna_tecnica
     
     if c_tec:
         for n, g in prods_filt.groupby(c_tec):
-            st.markdown(f"<div style='background:#f1f1f1; padding:2px 5px; font-size:11px; font-weight:bold;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
-            for _, r in g.iterrows(): render_fila_optimizada(r, segs, r_act, fecha_reg)
+            st.markdown(f"<div style='background:#f1f1f1; padding:2px 5px; font-size:10px; font-weight:bold; border-left: 3px solid #FF8C00;'>📂 {n.upper()}</div>", unsafe_allow_html=True)
+            for _, r in g.iterrows(): render_final(r, segs, rol_usr, f_str_hoy)
     else:
-        for _, r in prods_filt.iterrows(): render_fila_optimizada(r, segs, r_act, fecha_reg)
+        for _, r in prods_filt.iterrows(): render_final(r, segs, rol_usr, f_str_hoy)
 
+    # CIERRE FINAL DEL CONTENEDOR DE SCROLL
     st.markdown('</div>', unsafe_allow_html=True)
