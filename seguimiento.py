@@ -143,12 +143,18 @@ def mostrar(supervisor_id=None):
                                         "fecha": fecha_hoy
                                     })
 
-                    # ENVÍO ÚNICO A LA BASE DE DATOS
+                    # ENVÍO ÚNICO A LA BASE DE DATOS (CON LIMPIEZA DE DUPLICADOS)
                     if registros_masivos:
                         try:
-                            # Upsert masivo: mucho más rápido y evita errores de JSON individual
-                            supabase.table("seguimiento").upsert(registros_masivos, on_conflict="producto_id, hito").execute()
-                            st.success(f"✅ Se procesaron {len(df_imp)} productos instantáneamente.")
+                            # CORRECCIÓN: Eliminamos duplicados dentro de la lista de registros
+                            # antes de enviarlos a Supabase para evitar el error 21000
+                            df_limpio = pd.DataFrame(registros_masivos).drop_duplicates(subset=['producto_id', 'hito'])
+                            registros_finales = df_limpio.to_dict(orient='records')
+
+                            # Upsert masivo seguro
+                            supabase.table("seguimiento").upsert(registros_finales, on_conflict="producto_id, hito").execute()
+                            
+                            st.success(f"✅ Se procesaron {len(df_imp)} productos correctamente.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error en carga masiva: {e}")
@@ -260,6 +266,7 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
