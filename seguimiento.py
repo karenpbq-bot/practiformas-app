@@ -105,27 +105,55 @@ def mostrar(supervisor_id=None):
             archivo_excel = st.file_uploader("📥 Cargar Seguimiento Excel", type=["xlsx"])
             if archivo_excel:
                 df_imp = pd.read_excel(archivo_excel)
+                # Normalización de encabezados para el Match
                 df_imp.columns = [str(c).lower().replace('ó','o').replace('á','a').strip() for c in df_imp.columns]
                 
-                if st.button("🚀 Procesar Importación Inteligente"):
+                if st.button("🚀 Procesar Importación Rápida"):
                     prods_db = supabase.table("productos").select("id, ubicacion, tipo, ml").eq("proyecto_id", id_p).execute()
                     prods_df = pd.DataFrame(prods_db.data)
-                    count = 0
+                    
+                    # --- OPTIMIZACIÓN: CARGA POR LOTES ---
+                    registros_masivos = []
+                    fecha_hoy = obtener_fecha_formateada()
+
                     for _, row_ex in df_imp.iterrows():
                         match = prods_df[
                             (prods_df['ubicacion'].astype(str).str.lower().str.strip() == str(row_ex.get('ubicacion','')).lower().strip()) & 
                             (prods_df['tipo'].astype(str).str.lower().str.strip() == str(row_ex.get('tipo','')).lower().strip()) & 
                             (abs(prods_df['ml'] - float(row_ex.get('ml', 0))) < 0.05)
                         ]
-                        hito_ex = None
-                        for h in reversed(HITOS_LIST):
-                            col_ex = h.lower().replace('ñ','n').replace('ó','o').replace('á','a')
-                            if str(row_ex.get(col_ex, "")).upper() not in ["", "NAN", "NO", "NONE"]:
-                                hito_ex = h; break
-                        if not match.empty and hito_ex:
-                            registrar_hitos_cascada(match.iloc[0]['id'], hito_ex, obtener_fecha_formateada())
-                            count += 1
-                    st.success(f"✅ {count} productos actualizados."); st.rerun()
+                        
+                        if not match.empty:
+                            p_id = int(match.iloc[0]['id'])
+                            # Identificar hito máximo para aplicar cascada
+                            hito_max = None
+                            for h in reversed(HITOS_LIST):
+                                col_ex = h.lower().replace('ñ','n').replace('ó','o').replace('á','a')
+                                if str(row_ex.get(col_ex, "")).upper() not in ["", "NAN", "NO", "NONE"]:
+                                    hito_max = h
+                                    break
+                            
+                            if hito_max:
+                                # Agrupamos todos los hitos previos en la lista masiva
+                                idx_limite = HITOS_LIST.index(hito_max)
+                                for i in range(idx_limite + 1):
+                                    registros_masivos.append({
+                                        "producto_id": p_id,
+                                        "hito": HITOS_LIST[i],
+                                        "fecha": fecha_hoy
+                                    })
+
+                    # ENVÍO ÚNICO A LA BASE DE DATOS
+                    if registros_masivos:
+                        try:
+                            # Upsert masivo: mucho más rápido y evita errores de JSON individual
+                            supabase.table("seguimiento").upsert(registros_masivos, on_conflict="producto_id, hito").execute()
+                            st.success(f"✅ Se procesaron {len(df_imp)} productos instantáneamente.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error en carga masiva: {e}")
+                    else:
+                        st.warning("No se encontraron coincidencias para importar.")
 
         st.divider()
         nota_proy = st.text_area("📝 Notas u Observaciones del Proyecto:", value=p_data.get('partida', ''))
@@ -232,6 +260,7 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
