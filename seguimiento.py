@@ -195,14 +195,41 @@ def mostrar(supervisor_id=None):
         supabase.table("proyectos").update({"partida": nota_proy, "avance": pct_total}).eq("id", id_p).execute()
         st.success("Cierre guardado con éxito."); st.rerun()
 
-    # Botón Exportar
+    # --- BOTON DE EXPORTAR - EXPORTACIÓN CORREGIDA (Formato Seguimiento_Eliza Maestro) ---
     df_exp = prods_filt.copy()
+    
+    # Renombrar columnas para coincidir exactamente con el formato del archivo maestro
+    df_exp = df_exp.rename(columns={
+        'proyecto_id': 'Id Proyecto',
+        'ubicacion': 'Ubicacion',
+        'tipo': 'Tipo',
+        'ctd': 'Ctd'
+    })
+
+    # Llenar las columnas de hitos con la fecha grabada en la base de datos
     for h in HITOS_LIST:
-        df_exp[h] = df_exp['id'].apply(lambda x: "OK" if not segs[(segs['producto_id']==x) & (segs['hito']==h)].empty else "")
+        df_exp[h] = df_exp['id'].apply(
+            lambda x: segs[(segs['producto_id'] == x) & (segs['hito'] == h)]['fecha'].iloc[0] 
+            if not segs[(segs['producto_id'] == x) & (segs['hito'] == h)].empty else ""
+        )
+    
+    # Seleccionar y ordenar las columnas según el estándar requerido
+    columnas_formato = ['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST
+    df_exp_final = df_exp[columnas_formato]
+    
+    # Generar el archivo Excel usando el motor openpyxl para soporte total de caracteres especiales
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_exp.to_excel(writer, index=False)
-    a3.download_button("📥 EXPORTAR EXCEL", output.getvalue(), f"Seguimiento_{sel_p_nom}.xlsx", use_container_width=True)
+        df_exp_final.to_excel(writer, index=False, sheet_name='Seguimiento')
+        
+    # Botón de descarga con el MIME type correcto para Excel (.xlsx)
+    a3.download_button(
+        label="📥 EXPORTAR SEGUIMIENTO",
+        data=output.getvalue(),
+        file_name=f"Seguimiento_{sel_p_nom}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
 
     # Fila 2: Indicadores de Avance
     m1, m2 = st.columns(2)
@@ -238,18 +265,24 @@ def mostrar(supervisor_id=None):
                 seg_match = segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == hito)]
                 en_db = not seg_match.empty
                 
-                # Regla de desmarcado 8 a 1 y Bloqueo Supervisor
-                tiene_posterior = False
-                if i < len(HITOS_LIST) - 1:
-                    tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'] == HITOS_LIST[i+1])].empty
+                # CORRECCIÓN: Validamos contra TODA la lista de hitos posteriores (no solo el siguiente)
+                # Esto asegura que si saltas etapas, las anteriores queden bloqueadas correctamente.
+                posteriores = HITOS_LIST[i+1:]
+                tiene_posterior = not segs[(segs['producto_id'] == prod['id']) & (segs['hito'].isin(posteriores))].empty
                 
-                # Un supervisor solo puede marcar, no desmarcar.
+                rol = st.session_state.rol
+                # Bloqueo: Supervisor no desmarca, y nadie desmarca si hay un avance más adelante (regla 8 a 1).
                 bloqueo = (en_db and rol == "Supervisor") or (en_db and tiene_posterior)
 
                 if cols[i+1].checkbox("Ok", key=f"c_{prod['id']}_{hito}", value=en_db, label_visibility="collapsed", disabled=bloqueo):
                     if not en_db:
+                        # Al marcar, la función cascada guarda este y todos los previos en la DB
                         registrar_hitos_cascada(prod['id'], hito, fecha_reg.strftime("%d/%m/%Y"))
-                        st.rerun()
+                        st.rerun() # Refresca para pintar todos los nuevos checks de la cascada
+                elif en_db and not tiene_posterior and rol != "Supervisor":
+                    # Desmarcado permitido para Admin/Gerente solo si es el último hito de la cadena
+                    supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
+                    st.rerun()
                 elif en_db and not tiene_posterior and rol != "Supervisor":
                     # Borrado solo permitido para Admin/Gerente si no hay posteriores
                     supabase.table("seguimiento").delete().eq("producto_id", prod['id']).eq("hito", hito).execute()
@@ -272,4 +305,5 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
     
     st.markdown('</div>', unsafe_allow_html=True)
+
 
