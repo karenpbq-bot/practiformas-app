@@ -29,7 +29,9 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
         for h in hitos_a_marcar:
             # UPSERT: Preserva si ya existe, inserta si no.
             supabase.table("seguimiento").upsert({
-                "producto_id": int(p_id), "hito": h, "fecha": fecha_str
+                "producto_id": int(p_id), 
+                "hito": h, 
+                "fecha": fecha_str
             }, on_conflict="producto_id, hito").execute()
     except Exception as e:
         st.error(f"Error en cascada: {e}")
@@ -102,24 +104,42 @@ def mostrar(supervisor_id=None):
             # Lógica de Importación por Atributos (Ubicación, Tipo, ml)
             if archivo_excel:
                 df_imp = pd.read_excel(archivo_excel)
+                # CÓDIGO NUEVO PARA EL MATCH
                 if c_imp.button("🚀 Procesar Importación por Atributos"):
-                    # Cargar productos del proyecto para hacer Match
                     prods_db = supabase.table("productos").select("id, ubicacion, tipo, ml").eq("proyecto_id", id_p).execute()
                     prods_df = pd.DataFrame(prods_db.data)
-                    
+    
+                    # CORRECCIÓN 1: Normalizamos todas las columnas del Excel a minúsculas y sin tildes 
+                    # para que coincidan con 'ubicacion', 'tipo' y 'ml' sin importar cómo se escribió.
+                    df_imp.columns = [str(c).lower().replace('ó','o').replace('á','a').strip() for c in df_imp.columns]
+    
                     count = 0
                     for _, row_ex in df_imp.iterrows():
-                        # Match multivariable
-                        match = prods_df[
-                            (prods_df['ubicacion'].astype(str) == str(row_ex.get('Ubicación',''))) & 
-                            (prods_df['tipo'].astype(str) == str(row_ex.get('Tipo',''))) & 
-                            (abs(prods_df['ml'] - row_ex.get('ml', 0)) < 0.01)
-                        ]
-                        if not match.empty and 'Hito' in row_ex:
-                            registrar_hitos_cascada(match.iloc[0]['id'], row_ex['Hito'], obtener_fecha_formateada())
-                            count += 1
-                    st.success(f"✅ Se actualizaron {count} productos."); st.rerun()
-            
+                    # CORRECCIÓN 2: Match robusto. Usamos .str.lower() y .strip() en ambos lados
+                    # y un margen de error (abs < 0.05) para los metros lineales.
+                    match = prods_df[
+                        (prods_df['ubicacion'].astype(str).str.lower().str.strip() == str(row_ex.get('ubicacion','')).lower().strip()) & 
+                        (prods_df['tipo'].astype(str).str.lower().str.strip() == str(row_ex.get('tipo','')).lower().strip()) & 
+                        (abs(prods_df['ml'] - float(row_ex.get('ml', 0))) < 0.05)
+                    ]
+        
+                    # CORRECCIÓN 3: Identificación dinámica del hito más avanzado en el Excel
+                    hito_encontrado = None
+                    for h in reversed(HITOS_LIST):
+                        # Normalizamos el nombre del hito para buscarlo en el Excel (ej: "diseñado" -> "disenado")
+                        col_excel = h.lower().replace('ñ','n').replace('á','a').replace('é','e').replace('í','i').replace('ó','o').replace('ú','u')
+                        val_excel = str(row_ex.get(col_excel, row_ex.get(h, ""))).upper()
+                        if val_excel not in ["", "NAN", "NO", "NONE"]:
+                            hito_encontrado = h
+                            break
+        
+                    if not match.empty and hito_encontrado:
+                        registrar_hitos_cascada(match.iloc[0]['id'], hito_encontrado, obtener_fecha_formateada())
+                        count += 1
+    
+                # CORRECCIÓN 4: st.rerun() es vital aquí para que la matriz lea los nuevos datos de la nube
+                st.success(f"✅ Se actualizaron {count} productos."); st.rerun()
+                            
             # Exportación (Fiel a la vista)
             if c_exp.button("📤 Preparar Excel para Descarga"):
                 st.info("Función de exportación lista en el panel principal.")
@@ -252,3 +272,4 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
     
     st.markdown('</div>', unsafe_allow_html=True)
+
