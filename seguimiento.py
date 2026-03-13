@@ -52,7 +52,7 @@ def mostrar(supervisor_id=None):
   # CSS de Alta Densidad: Elimina espacios muertos y fija encabezado
     st.markdown("""
         <style>
-        /* 1. Colapsar espacios internos de Streamlit */
+        /* 1. Colapsar espacios internos de Streamlit para eliminar el cuadro vacío */
         [data-testid="stVerticalBlock"] > div {
             gap: 0rem !important;
             padding-top: 0px !important;
@@ -70,16 +70,16 @@ def mostrar(supervisor_id=None):
             margin-bottom: 0px !important;
         }
 
-        /* 3. Área de productos: Pegada al encabezado */
+        /* 3. Área de productos: Pegada al encabezado con altura fija */
         .scroll-area { 
-            height: 65vh; 
+            height: 60vh; 
             overflow-y: auto !important; 
             overflow-x: auto !important; 
             border: 1px solid #eee;
-            margin-top: -1px !important;
+            margin-top: -1px !important; /* Une la lista al encabezado */
         }
 
-        /* 4. Textos y métricas miniatura */
+        /* 4. Métricas y textos miniatura */
         .metric-small { font-size: 11px; font-weight: bold; color: #666; line-height: 1; }
         .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
         
@@ -88,7 +88,7 @@ def mostrar(supervisor_id=None):
             flex-wrap: nowrap !important;
             gap: 2px !important;
         }
-        .stButton>button { height: 28px !important; font-size: 10px !important; }
+        .stButton>button { height: 28px !important; font-size: 10px !important; padding: 0px 5px !important; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -195,8 +195,25 @@ def mostrar(supervisor_id=None):
                     else:
                         st.warning("No se encontraron coincidencias para importar.")
 
-        st.divider()
-        nota_proy = st.text_area("📝 Notas u Observaciones del Proyecto:", value=p_data.get('partida', ''))
+        # --- EXPORTACIÓN REUBICADA (FUERA DEL IF ARCHIVO_EXCEL) ---
+            st.divider()
+            st.write("📤 **Exportar Reporte Maestro**")
+            # El código de exportación se ejecuta aquí para estar siempre disponible
+            df_exp = prods_filt.copy().rename(columns={'proyecto_id': 'Id Proyecto', 'ubicacion': 'Ubicacion', 'tipo': 'Tipo', 'ctd': 'Ctd'})
+            for h in HITOS_LIST:
+                df_exp[h] = df_exp['id'].apply(lambda x: segs[(segs['producto_id']==x) & (segs['hito']==h)]['fecha'].iloc[0] if not segs[(segs['producto_id']==x) & (segs['hito']==h)].empty else "")
+            
+            output_exp = io.BytesIO()
+            with pd.ExcelWriter(output_exp, engine='openpyxl') as writer:
+                df_exp[['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST].to_excel(writer, index=False, sheet_name='Seguimiento')
+            
+            st.download_button(
+                label="📥 DESCARGAR EXCEL", 
+                data=output_exp.getvalue(), 
+                file_name=f"Seguimiento_{sel_p_nom}.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                use_container_width=True
+            )
 
     # --- CARGA DE DATOS ---
     res_base = supabase.table("productos").select("*").eq("proyecto_id", id_p).execute()
@@ -255,6 +272,8 @@ def mostrar(supervisor_id=None):
                     registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
+            
+            cols_h[-1].write("**Nota**")
     
     # CERRAMOS el área fija - Esto elimina el cuadro vacío al unirlo con el scroll
     st.markdown('</div>', unsafe_allow_html=True)
@@ -295,4 +314,5 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
