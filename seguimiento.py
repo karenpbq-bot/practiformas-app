@@ -49,53 +49,54 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
 # 3. INTERFAZ PRINCIPAL
 # =========================================================
 def mostrar(supervisor_id=None):
-    # CSS de Alta Densidad: Compacto y Realmente Fijo
+   # CSS para Vista Densa, Profesional y Realmente Fija
     st.markdown("""
         <style>
-        /* 1. Reducción de márgenes globales para evitar dispersión */
-        .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+        /* 1. Eliminar márgenes laterales de la página */
+        .block-container { padding: 1rem 1rem 0rem 1rem !important; max-width: 100% !important; }
         
-        /* 2. Contenedor STICKY para el Centro de Control y Encabezado */
+        /* 2. Área Fija (Header + Centro de Control) */
         .sticky-top { 
             position: sticky; 
             top: 0; 
             background: white; 
             z-index: 999; 
-            border-bottom: 3px solid #FF8C00;
-            padding-bottom: 10px;
+            border-bottom: 2px solid #FF8C00;
+            margin-bottom: 0px;
         }
 
-        /* 3. Reducción de espacios entre columnas (Gaps) */
+        /* 3. Forzar Compactación Extrema de Columnas */
         [data-testid="column"] {
-            padding: 0px 2px !important;
+            padding: 0px 1px !important;
             margin: 0px !important;
+            min-width: 0px !important;
         }
-
-        /* 4. Métricas Compactas */
+        
+        /* 4. Ajuste de Textos y Métricas */
         .metric-small { font-size: 11px; font-weight: bold; color: #555; line-height: 1; }
         .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
 
-        /* 5. Área de productos con altura fija y scroll */
+        /* 5. Área de Matriz con Altura Fija y Doble Scroll */
         .scroll-area { 
-            height: 600px; 
+            height: 500px; 
             overflow-y: auto !important; 
             overflow-x: auto !important; 
             border: 1px solid #eee;
-            padding-top: 10px;
         }
 
-        /* 6. Forzar que las filas no se rompan (Mantenimiento de Matriz) */
+        /* 6. Bloqueo de Salto de Línea (Mantiene la forma de Matriz) */
         [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
-            align-items: center;
+            gap: 2px !important;
         }
         
-        /* 7. Botones más pequeños para ganar espacio */
+        /* 7. Botones y Checks Miniaturizados */
         .stButton>button { 
-            height: 28px !important; 
-            padding: 0px 5px !important;
-            font-size: 10px !important;
+            height: 26px !important; 
+            font-size: 10px !important; 
+            padding: 0px 4px !important;
         }
+        .stCheckbox { margin-bottom: 0px !important; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -307,6 +308,7 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
