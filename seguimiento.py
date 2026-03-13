@@ -49,17 +49,17 @@ def registrar_hitos_cascada(p_id, hito_final, fecha_str):
 # 3. INTERFAZ PRINCIPAL
 # =========================================================
 def mostrar(supervisor_id=None):
-  # CSS para eliminar espacios muertos y fijar el ancho
+  # CSS de Alta Densidad: Elimina espacios muertos y fija encabezado
     st.markdown("""
         <style>
-        /* 1. Eliminar espacios entre elementos de Streamlit */
+        /* 1. Colapsar espacios internos de Streamlit */
         [data-testid="stVerticalBlock"] > div {
             gap: 0rem !important;
             padding-top: 0px !important;
             padding-bottom: 0px !important;
         }
         
-        /* 2. Centro de Control y Encabezado FIJO */
+        /* 2. Área Fija Superior (Métricas + Encabezado) */
         .sticky-top { 
             position: sticky; 
             top: 0; 
@@ -67,26 +67,28 @@ def mostrar(supervisor_id=None):
             z-index: 1000; 
             border-bottom: 2px solid #FF8C00;
             padding: 0px !important;
+            margin-bottom: 0px !important;
         }
 
-        /* 3. Área de productos: pegada al encabezado */
+        /* 3. Área de productos: Pegada al encabezado */
         .scroll-area { 
-            height: 60vh; 
+            height: 65vh; 
             overflow-y: auto !important; 
             overflow-x: auto !important; 
             border: 1px solid #eee;
-            margin-top: -2px !important; /* Elimina la separación visual */
+            margin-top: -1px !important;
         }
 
-        /* 4. Métricas y textos miniatura */
+        /* 4. Textos y métricas miniatura */
         .metric-small { font-size: 11px; font-weight: bold; color: #666; line-height: 1; }
         .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
         
-        /* 5. Forzar filas horizontales en móvil */
+        /* 5. Forzar matriz horizontal en móviles */
         [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
             gap: 2px !important;
         }
+        .stButton>button { height: 28px !important; font-size: 10px !important; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -222,44 +224,39 @@ def mostrar(supervisor_id=None):
     pct_parcial = calcular_avance(prods_filt, segs, pesos)
 
     # =========================================================
-    # 4. ACCIONES GLOBALES E INDICADORES (STICKY)
+    # 4. CENTRO DE CONTROL COMPACTO (STICKY)
     # =========================================================
     st.markdown('<div class="sticky-top">', unsafe_allow_html=True)
     
-    # Fila 1: Acciones
-    a1, a2, a3 = st.columns([1.5, 1.5, 2])
-    fecha_reg = a1.date_input("📅 Fecha Registro:", datetime.now())
-    if a2.button("💾 GUARDAR AVANCE", use_container_width=True, type="primary"):
-        actualizar_avance_real(id_p)
-        ahora = datetime.now()
-        supabase.table("cierres_diarios").insert({"proyecto_id": id_p, "fecha": ahora.strftime("%d/%m/%Y"), "hora": ahora.strftime("%H:%M:%S"), "cerrado_por": st.session_state.get('id_usuario', 0)}).execute()
-        supabase.table("proyectos").update({"partida": nota_proy, "avance": pct_total}).eq("id", id_p).execute()
-        st.success("Avance guardado."); st.rerun()
+    # FILA 1: Avance T | Avance P | Fecha | Guardar
+    c_ctrl = st.columns([1, 1, 1.1, 1.2])
+    c_ctrl[0].markdown(f"<div class='metric-small'>TOTAL<br><span class='pct-val'>{pct_total}%</span></div>", unsafe_allow_html=True)
+    c_ctrl[1].markdown(f"<div class='metric-small'>FILTRO<br><span class='pct-val'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
+    
+    with c_ctrl[2]:
+        fecha_reg = st.date_input("F", datetime.now(), label_visibility="collapsed")
+    
+    with c_ctrl[3]:
+        if st.button("💾 GUARDAR", use_container_width=True, type="primary"):
+            actualizar_avance_real(id_p)
+            # Nota: Asegúrate de que 'nota_proy' esté definida antes o usa p_data.get('partida','')
+            supabase.table("proyectos").update({"partida": nota_proy, "avance": pct_total}).eq("id", id_p).execute()
+            st.rerun()
 
-    # Exportación con Formato Maestro (ñ, tildes y columnas)
-    df_exp = prods_filt.copy().rename(columns={'proyecto_id': 'Id Proyecto', 'ubicacion': 'Ubicacion', 'tipo': 'Tipo', 'ctd': 'Ctd'})
-    for h in HITOS_LIST:
-        df_exp[h] = df_exp['id'].apply(lambda x: segs[(segs['producto_id']==x) & (segs['hito']==h)]['fecha'].iloc[0] if not segs[(segs['producto_id']==x) & (segs['hito']==h)].empty else "")
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_exp[['Id Proyecto', 'Ubicacion', 'Tipo', 'Ctd', 'ml'] + HITOS_LIST].to_excel(writer, index=False, sheet_name='Seguimiento')
-    a3.download_button(label="📥 EXPORTAR SEGUIMIENTO", data=output.getvalue(), file_name=f"Seguimiento_{sel_p_nom}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-
-    # Fila 2: Indicadores de Avance % (Justo encima del encabezado)
-    m1, m2 = st.columns(2)
-    m1.markdown(f"<div class='metric-box'><b>% AVANCE TOTAL PROYECTO</b><br><span style='font-size:22px; color:#FF8C00;'>{pct_total}%</span></div>", unsafe_allow_html=True)
-    m2.markdown(f"<div class='metric-box'><b>% AVANCE SELECCIÓN (FILTRO)</b><br><span style='font-size:22px; color:#2E86C1;'>{pct_parcial}%</span></div>", unsafe_allow_html=True)
-
-    # Fila 3: Encabezado de Matriz
+    # FILA 2: Encabezado Naranja (Mueble + Iconos ✅)
     cols_h = st.columns([3] + [0.7]*8 + [2])
-    cols_h[0].write("**Producto / Medida**")
+    cols_h[0].markdown("<div style='font-size:11px; font-weight:bold; padding-top:5px;'>Mueble / ml</div>", unsafe_allow_html=True)
+    
     for i, hito in enumerate(HITOS_LIST):
         with cols_h[i+1]:
-            if st.button("✅", key=f"bk_{hito}"):
-                for pid in prods_filt['id'].tolist(): registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
+            # Botón masivo ✅
+            if st.button("✅", key=f"bk_all_{hito}"):
+                for pid in prods_filt['id'].tolist(): 
+                    registrar_hitos_cascada(pid, hito, fecha_reg.strftime("%d/%m/%Y"))
                 st.rerun()
             st.write(MAPEO_HITOS[hito])
-    cols_h[-1].write("**Nota**")
+    
+    # CERRAMOS el área fija - Esto elimina el cuadro vacío al unirlo con el scroll
     st.markdown('</div>', unsafe_allow_html=True)
 
     # =========================================================
@@ -298,15 +295,4 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
-
-
-
-
-
-
-
-
-
-
-
 
