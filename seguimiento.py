@@ -24,17 +24,26 @@ def obtener_fecha_formateada():
 def registrar_hitos_cascada(p_id, hito_final, fecha_str):
     supabase = conectar()
     try:
+        # Aseguramos que p_id sea un entero de Python puro (evita tipos de numpy)
+        safe_p_id = int(p_id)
+        
+        # Validamos que la fecha no sea un valor nulo de Pandas (NaN)
+        safe_fecha = str(fecha_str) if pd.notnull(fecha_str) else obtener_fecha_formateada()
+        
         idx_limite = HITOS_LIST.index(hito_final)
         hitos_a_marcar = HITOS_LIST[:idx_limite + 1]
+        
         for h in hitos_a_marcar:
-            # UPSERT: Mantiene fecha si ya existe, crea si es nuevo.
+            # UPSERT con datos limpios
             supabase.table("seguimiento").upsert({
-                "producto_id": int(p_id), 
-                "hito": h, 
-                "fecha": fecha_str
+                "producto_id": safe_p_id, 
+                "hito": str(h), 
+                "fecha": safe_fecha
             }, on_conflict="producto_id, hito").execute()
+            
     except Exception as e:
-        st.error(f"Error en cascada: {e}")
+        # Esto nos dará más detalle si el error persiste
+        st.error(f"Error detallado en cascada: {e}")
 
 # =========================================================
 # 3. INTERFAZ PRINCIPAL
@@ -223,5 +232,6 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
