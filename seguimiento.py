@@ -52,51 +52,47 @@ def mostrar(supervisor_id=None):
    # CSS para Vista Densa, Profesional y Realmente Fija
     st.markdown("""
         <style>
-        /* 1. Eliminar márgenes laterales de la página */
-        .block-container { padding: 1rem 1rem 0rem 1rem !important; max-width: 100% !important; }
+        /* 1. Eliminamos el aire en la parte superior de la app */
+        .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; }
         
-        /* 2. Área Fija (Header + Centro de Control) */
+        /* 2. El encabezado: se convierte en una franja delgada */
         .sticky-top { 
             position: sticky; 
             top: 0; 
             background: white; 
             z-index: 999; 
-            border-bottom: 2px solid #FF8C00;
-            margin-bottom: 0px;
+            border-bottom: 1px solid #FF8C00; /* Línea delgada naranja */
+            padding: 2px 0px 5px 0px !important;
+            margin-bottom: 0px !important;
         }
 
-        /* 3. Forzar Compactación Extrema de Columnas */
+        /* 3. Ajuste de columnas para que no se dispersen */
         [data-testid="column"] {
             padding: 0px 1px !important;
             margin: 0px !important;
             min-width: 0px !important;
         }
-        
-        /* 4. Ajuste de Textos y Métricas */
-        .metric-small { font-size: 11px; font-weight: bold; color: #555; line-height: 1; }
-        .pct-val { font-size: 13px; color: #FF8C00; font-weight: bold; }
 
-        /* 5. Área de Matriz con Altura Fija y Doble Scroll */
+        /* 4. El área de productos: eliminamos el espacio superior */
         .scroll-area { 
-            height: 500px; 
+            height: 600px; 
             overflow-y: auto !important; 
             overflow-x: auto !important; 
             border: 1px solid #eee;
+            margin-top: 0px !important;
+            padding-top: 0px !important;
         }
 
-        /* 6. Bloqueo de Salto de Línea (Mantiene la forma de Matriz) */
+        /* 5. Aseguramos que las filas de productos sean compactas */
         [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
             gap: 2px !important;
+            margin-bottom: -5px !important; /* Acerca las filas entre sí */
         }
         
-        /* 7. Botones y Checks Miniaturizados */
-        .stButton>button { 
-            height: 26px !important; 
-            font-size: 10px !important; 
-            padding: 0px 4px !important;
-        }
-        .stCheckbox { margin-bottom: 0px !important; }
+        /* 6. Textos y métricas minúsculas */
+        .metric-small { font-size: 10px; font-weight: bold; color: #666; line-height: 1; }
+        .pct-val { font-size: 12px; color: #FF8C00; font-weight: bold; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -308,6 +304,7 @@ def mostrar(supervisor_id=None):
         render_prods(prods_filt)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
