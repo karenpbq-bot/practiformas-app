@@ -6,119 +6,121 @@ def mostrar():
     st.header("👤 Gestión de Usuarios y Perfil")
     supabase = conectar()
     
-    # =========================================================
-    # SECCIÓN 1: PERFIL UNIVERSAL (Autogestión de Clave)
-    # =========================================================
-    with st.expander("👤 Mi Perfil y Seguridad", expanded=True):
-        st.write(f"**Usuario actual:** {st.session_state.get('usuario', 'No definido')}")
-        st.write(f"**Nombre:** {st.session_state.get('nombre_real', 'No definido')}")
-        st.write(f"**Nivel de Acceso:** {st.session_state.get('rol', 'No definido')}")
+    # --- DIAGNÓSTICO DE ROL (Solo para ti en consola/pantalla) ---
+    # Esto nos dirá qué valor exacto tiene tu rol en la base de datos
+    rol_actual = str(st.session_state.get('rol', 'Invitado')).strip()
+    
+    # 1. PERFIL PERSONAL (Siempre visible)
+    with st.expander("👤 Mi Perfil y Seguridad", expanded=False):
+        st.write(f"**Usuario:** {st.session_state.get('usuario')}")
+        st.write(f"**Nombre:** {st.session_state.get('nombre_real')}")
+        st.write(f"**Nivel de Acceso:** {rol_actual}")
         
         st.divider()
-        st.subheader("Cambiar mi contraseña")
-        with st.form("form_auto_cambio", clear_on_submit=True):
-            clave_actual = st.text_input("Contraseña Actual:", type="password")
-            nueva_clave = st.text_input("Nueva Contraseña:", type="password")
-            confirmar_clave = st.text_input("Confirmar Nueva Contraseña:", type="password")
+        with st.form("form_auto_cambio"):
+            st.subheader("Cambiar mi contraseña")
+            clave_act = st.text_input("Contraseña Actual:", type="password")
+            nueva_cl = st.text_input("Nueva Contraseña:", type="password")
+            conf_cl = st.text_input("Confirmar Nueva Contraseña:", type="password")
             
             if st.form_submit_button("Actualizar mi contraseña"):
-                # Ajuste Nube: Consulta de validación
                 res = supabase.table("usuarios").select("contrasena").eq("nombre_usuario", st.session_state.usuario).execute()
-                datos = res.data[0] if res.data else None
-                
-                if datos and datos['contrasena'] == clave_actual:
-                    if nueva_clave == confirmar_clave and nueva_clave != "":
-                        # Ajuste Nube: Update de contraseña
-                        supabase.table("usuarios").update({"contrasena": nueva_clave}).eq("nombre_usuario", st.session_state.usuario).execute()
-                        st.success("✅ Tu contraseña ha sido actualizada correctamente.")
-                    else:
-                        st.error("❌ Las nuevas contraseñas no coinciden o están vacías.")
-                else:
-                    st.error("❌ La contraseña actual es incorrecta.")
+                if res.data and res.data[0]['contrasena'] == clave_act:
+                    if nueva_cl == conf_cl and nueva_cl != "":
+                        supabase.table("usuarios").update({"contrasena": nueva_cl}).eq("nombre_usuario", st.session_state.usuario).execute()
+                        st.success("✅ Contraseña actualizada.")
+                    else: st.error("❌ Las contraseñas no coinciden.")
+                else: st.error("❌ Contraseña actual incorrecta.")
 
-    # =========================================================
-    # SECCIÓN 2: CONTROL DE EQUIPO (Restringido a Admin)
-    # =========================================================
-    rol_actual = st.session_state.get('rol', 'Invitado')
-
-    if rol_actual == "Administrador":
+   # --- ESTE ES EL AJUSTE DE LA INSTRUCCIÓN 1 ---
+    # Definimos que tanto 'admin' como 'administrador' son jefes
+    roles_jefes = ["administrador", "admin"]
+    
+    if rol_actual.lower() in roles_jefes:
         st.markdown("---")
         st.subheader("⚙️ Panel de Administración de Equipo")
+        
+        # Aquí siguen tus pestañas (tabs) de Crear Usuario y Lista...
         
         tab1, tab2 = st.tabs(["➕ Crear Usuario", "👥 Lista de Equipo"])
             
         with tab1:
             with st.form("nuevo_usuario", clear_on_submit=True):
-                st.subheader("Datos del Colaborador")
+                st.write("### Datos del Nuevo Colaborador")
                 u_real = st.text_input("Nombre Completo (Ej: Juan Pérez)")
                 u_nombre = st.text_input("Nombre de Usuario (Login)")
                 u_pass = st.text_input("Contraseña Temporal", type="password")
+                u_rol = st.selectbox("Rol y Permisos", ["Supervisor", "Gerente", "Administrador"])
                 
-                u_rol = st.selectbox("Rol y Permisos", [
-                    "Supervisor", 
-                    "Gerente", 
-                    "Administrador"
-                ], help="Supervisor: Proyectos propios. Gerente: Lectura total. Admin: Control total.")
-                
-                if st.form_submit_button("Registrar en el Sistema"):
+                if st.form_submit_button("🚀 Registrar en el Sistema"):
                     if u_nombre and u_pass and u_real:
                         try:
-                            # Ajuste Nube: Inserción de nuevo registro
+                            # Inserción directa con columna correcta
                             supabase.table("usuarios").insert({
                                 "nombre_usuario": u_nombre,
                                 "contrasena": u_pass,
                                 "rol": u_rol,
-                                "nombre_real": u_real
+                                "nombre_completo": u_real 
                             }).execute()
-                            st.success(f"✅ {u_real} registrado como {u_rol}.")
-                        except Exception:
-                            st.error("Error: El nombre de usuario ya existe en la base de datos.")
+                            st.success(f"✅ {u_real} ha sido registrado.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error técnico: {e}")
                     else:
-                        st.warning("Por favor, complete todos los campos.")
+                        st.warning("⚠️ Rellene todos los campos.")
 
+        # UBICACIÓN: Dentro de 'with tab2:'
         with tab2:
-            st.subheader("Colaboradores con acceso")
             try:
-                # Ajuste Nube: Lectura de tabla para DataFrame
-                res_u = supabase.table("usuarios").select("nombre_real, nombre_usuario, rol").execute()
-                df_u = pd.DataFrame(res_u.data)
-                
-                if not df_u.empty:
-                    # Renombrar columnas para la visualización original
-                    df_u.columns = ['Nombre', 'Usuario', 'Rol']
-                    st.dataframe(df_u, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No hay otros usuarios registrados.")
-            except Exception:
-                st.error("Error al cargar la lista de equipo desde la nube.")
+                # CAMBIO CRÍTICO: Seleccionamos el 'id' explícitamente
+                res_u = supabase.table("usuarios").select("id, nombre_completo, nombre_usuario, rol").execute()
+                if res_u.data:
+                    for user in res_u.data:
+                        # Diseño modular en filas
+                        c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+                        c1.write(f"**{user['nombre_completo']}**")
+                        c2.write(f"@{user['nombre_usuario']}")
+                        c3.write(f"Role: {user['rol']}")
+                        
+                        # Botones de Acción
+                        with c4.popover("⚙️"):
+                            if st.button("Editar", key=f"btn_ed_{user['id']}"):
+                                st.session_state.user_edit_id = user['id']
+                                st.session_state.user_edit_data = user
+                                st.rerun()
+                            
+                            if st.button("Eliminar", key=f"btn_del_{user['id']}"):
+                                if user['id'] == st.session_state.id_usuario:
+                                    st.error("No puedes eliminarte a ti mismo.")
+                                else:
+                                    from base_datos import eliminar_usuario_bd
+                                    eliminar_usuario_bd(user['id'])
+                                    st.success("Eliminado.")
+                                    st.rerun()
+                        st.divider()
 
-        # =========================================================
-        # SECCIÓN 3: HERRAMIENTA DE RESCATE (Reset Maestro)
-        # =========================================================
-        seccion_seguridad()
+                # MODAL DE EDICIÓN (Aparece solo al dar click en Editar)
+                if "user_edit_id" in st.session_state:
+                    with st.expander("📝 Editar Datos de Usuario", expanded=True):
+                        with st.form("edit_form"):
+                            n_nom = st.text_input("Nombre Real", value=st.session_state.user_edit_data['nombre_completo'])
+                            n_usu = st.text_input("Usuario (Login)", value=st.session_state.user_edit_data['nombre_usuario'])
+                            n_rol = st.selectbox("Rol", ["Supervisor", "Gerente", "Administrador"], 
+                                               index=["Supervisor", "Gerente", "Administrador"].index(st.session_state.user_edit_data['rol']))
+                            
+                            col_f1, col_f2 = st.columns(2)
+                            if col_f1.form_submit_button("Guardar"):
+                                from base_datos import actualizar_usuario_bd
+                                actualizar_usuario_bd(st.session_state.user_edit_id, {
+                                    "nombre_completo": n_nom,
+                                    "nombre_usuario": n_usu,
+                                    "rol": n_rol
+                                })
+                                del st.session_state.user_edit_id
+                                st.rerun()
+                            if col_f2.form_submit_button("Cancelar"):
+                                del st.session_state.user_edit_id
+                                st.rerun()
 
-def seccion_security_nube(user, password):
-    """Función auxiliar para ejecutar el cambio en la nube."""
-    supabase = conectar()
-    supabase.table("usuarios").update({"contrasena": password}).eq("nombre_usuario", user).execute()
-
-def seccion_seguridad():
-    st.markdown("---")
-    st.subheader("🛡️ Seguridad del Sistema")
-    
-    with st.expander("Cambiar contraseña de cualquier cuenta (Reset Maestro)"):
-        with st.form("cambio_pass_form"):
-            user_to_change = st.text_input("Nombre de usuario:")
-            new_pass = st.text_input("Nueva contraseña segura:", type="password")
-            submitted = st.form_submit_button("Actualizar Credenciales")
-            
-            if submitted:
-                if user_to_change and new_pass:
-                    try:
-                        # Ajuste Nube: Update maestro
-                        seccion_security_nube(user_to_change, new_pass)
-                        st.success(f"✅ La contraseña de **{user_to_change}** ha sido actualizada.")
-                    except Exception as e:
-                        st.error(f"Error al actualizar: {e}")
-                else:
-                    st.error("Por favor, rellena ambos campos.")
+            except Exception as e:
+                st.error(f"Error: {e}")
