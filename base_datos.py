@@ -28,7 +28,8 @@ def validar_usuario(usuario, clave):
 def obtener_supervisores():
     try:
         supabase = conectar()
-        res = supabase.table("usuarios").select("id, nombre_completo, rol").in_("rol", ['Administrador', 'Gerente', 'Supervisor']).execute()
+        # Aceptamos 'admin' en minúscula para que coincida con tu base de datos
+        res = supabase.table("usuarios").select("id, nombre_completo, rol").in_("rol", ['admin', 'Administrador', 'Gerente', 'Supervisor']).execute()
         df = pd.DataFrame(res.data)
         if not df.empty:
             df = df.rename(columns={'nombre_completo': 'nombre_real'})
