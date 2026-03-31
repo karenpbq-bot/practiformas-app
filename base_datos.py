@@ -28,14 +28,14 @@ def validar_usuario(usuario, clave):
 def obtener_supervisores():
     try:
         supabase = conectar()
-        # Aceptamos 'admin' en minúscula para que coincida con tu base de datos
+        # Agregamos 'admin' (minúscula) que es como está en tu tabla de usuarios
         res = supabase.table("usuarios").select("id, nombre_completo, rol").in_("rol", ['admin', 'Administrador', 'Gerente', 'Supervisor']).execute()
         df = pd.DataFrame(res.data)
         if not df.empty:
+            # Renombramos para que coincida con lo que busca proyectos.py
             df = df.rename(columns={'nombre_completo': 'nombre_real'})
         return df
     except Exception as e:
-        st.error(f"Error al obtener supervisores: {e}")
         return pd.DataFrame(columns=['id', 'nombre_real', 'rol'])
 
 # =========================================================
