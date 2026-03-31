@@ -47,11 +47,19 @@ def obtener_proyectos(palabra_clave=""):
         supabase = conectar()
         query = supabase.table("proyectos").select("*")
         if palabra_clave:
+            # Usamos 'proyecto_text' porque así se llama en tu base de datos real
             query = query.or_(f"codigo.ilike.%{palabra_clave}%,proyecto_text.ilike.%{palabra_clave}%,cliente.ilike.%{palabra_clave}%")
         res = query.execute()
         df = pd.DataFrame(res.data)
+        
         if not df.empty:
-            df['proyecto_display'] = "[" + df['codigo'].astype(str) + "] " + df['proyecto_text']
+            # --- ESTA LÍNEA ES LA QUE DESCONGELA LA APP ---
+            # Renombramos 'proyecto_text' a 'nombre' para que el resto de la App (proyectos.py) no falle
+            if 'proyecto_text' in df.columns:
+                df = df.rename(columns={'proyecto_text': 'nombre'})
+            
+            # Ahora la App puede crear esta columna sin romperse
+            df['proyecto_display'] = "[" + df['codigo'].astype(str) + "] " + df['nombre']
         return df
     except Exception as e:
         st.error(f"Error crítico en la consulta: {e}")
