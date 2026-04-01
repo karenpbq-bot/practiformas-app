@@ -52,10 +52,10 @@ if menu == "Proyectos":
     proyectos.mostrar() 
 
 elif menu == "Seguimiento": 
-    # Enviamos tanto el ID del usuario como su ROL para habilitar permisos de Jefe
+    # IMPORTANTE: Debemos pasar 'rol=rol_usuario'
     seguimiento.mostrar(
         supervisor_id=id_usuario if rol_usuario == "Supervisor" else None,
-        rol=rol_usuario
+        rol=rol_usuario 
     )
 
 elif menu == "Gantt": 
