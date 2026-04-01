@@ -227,25 +227,39 @@ def mostrar(supervisor_id=None):
             if st.button("✅", key=f"bk_{h}"):
                 f_hoy = f_reg.strftime("%d/%m/%Y")
                 lote_grupal = []
+                h_idx_objetivo = HITOS_LIST.index(h)
+                
                 for pid in df_f['id'].tolist():
-                    if segs[(segs['producto_id'] == pid) & (segs['hito'] == h)].empty:
-                        lote_grupal.append({"producto_id": int(pid), "hito": h, "fecha": f_hoy})
+                    # 1. REGLA DE CASCADA: Marcamos desde el inicio hasta el hito seleccionado
+                    for idx_previo in range(h_idx_objetivo + 1):
+                        hito_a_llenar = HITOS_LIST[idx_previo]
+                        
+                        # Verificamos si ya existe en DB o en cambios pendientes
+                        en_db = not segs[(segs['producto_id'] == pid) & (segs['hito'] == hito_a_llenar)].empty
+                        en_memoria = any(d["pid"] == pid and d["hito"] == hito_a_llenar for d in st.session_state.cambios_pendientes)
+                        
+                        if not en_db and not en_memoria:
+                            # 2. LO AGREGAMOS A LA MEMORIA TEMPORAL (Esto hace que el check se vea puesto)
+                            st.session_state.cambios_pendientes.append({"pid": int(pid), "hito": hito_a_llenar})
+                            # 3. También lo preparamos para el lote de guardado inmediato si prefieres
+                            lote_grupal.append({"producto_id": int(pid), "hito": hito_a_llenar, "fecha": f_hoy})
                 
                 if lote_grupal:
                     try:
+                        # Guardamos en Supabase para asegurar los datos
                         supabase.table("seguimiento").upsert(lote_grupal, on_conflict="producto_id, hito").execute()
                         
-                        # Sincronización Estructural
+                        # Actualizamos el Gantt
                         from base_datos import sincronizar_avances_estructural
                         p_data_obj = df_p_all[df_p_all['id'] == id_p].iloc[0]
                         sincronizar_avances_estructural(p_data_obj['codigo'])
-
-                        st.success(f"✅ {h} marcado y métricas actualizadas.")
-                        st.rerun() # Forzamos recarga para ver los cambios
-                    
+                        
+                        st.success(f"✅ Etapas hasta {h} marcadas visualmente.")
+                        # 4. FORZAMOS EL REFRESCO: Al recargar, leerá la memoria y pondrá los checks
+                        st.rerun() 
                     except Exception as e:
                         st.error(f"Error: {e}")
-                        
+                                                
     cols_h[-1].write("**Notas**")
     st.markdown('</div>', unsafe_allow_html=True)
 
