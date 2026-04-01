@@ -25,7 +25,7 @@ def validar_usuario(usuario, clave):
     res = supabase.table("usuarios").select("*").eq("nombre_usuario", usuario).eq("contrasena", clave).execute()
     if res.data:
         u = res.data[0]
-        # AGREGA ESTA LÍNEA para asegurar que el rol sea siempre limpio
+        # Limpieza estándar: quita espacios laterales
         u['rol'] = str(u.get('rol', 'Supervisor')).strip()
         return u
     return None
