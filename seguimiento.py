@@ -17,7 +17,11 @@ HITOS_LIST = list(MAPEO_HITOS.keys())
 # =========================================================
 # 2. INTERFAZ PRINCIPAL
 # =========================================================
-def mostrar(supervisor_id=None):
+def mostrar(supervisor_id=None, rol=None):
+    # --- NUEVO: Capturar el rol enviado desde app_principal ---
+    if rol:
+        st.session_state.rol = rol
+        
     # --- A. MEMORIA TEMPORAL ---
     if 'cambios_pendientes' not in st.session_state:
         st.session_state.cambios_pendientes = []
