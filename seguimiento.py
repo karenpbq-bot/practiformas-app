@@ -241,34 +241,45 @@ def mostrar(supervisor_id=None, rol=None):
             cols[0].write(f"{p['ubicacion']} | {p['tipo']} | **{p['ml']} ML**")
             
             for i, h in enumerate(HITOS_LIST):
+                # 1. ESTADO DE DATOS (Cascada Visual)
                 en_db = not segs[(segs['producto_id'] == p['id']) & (segs['hito'] == h)].empty
+                # Regla de cascada visual: si el hito 5 existe, el 1,2,3,4 se marcan automáticamente
+                tiene_posterior_en_db = not segs[(segs['producto_id'] == p['id']) & (segs['hito'].isin(HITOS_LIST[i+1:]))].empty
                 idx_mem = next((idx for idx, d in enumerate(st.session_state.cambios_pendientes) if d["pid"] == p['id'] and d["hito"] == h), None)
-                existe = en_db or (idx_mem is not None)
                 
-                tiene_post_db = not segs[(segs['producto_id'] == p['id']) & (segs['hito'].isin(HITOS_LIST[i+1:]))].empty
-                bloqueado = False if es_jefe_m else (en_db or tiene_post_db)
+                # Definición final de "marcado"
+                existe = en_db or tiene_posterior_en_db or (idx_mem is not None)
+                
+                # 2. REGLA DE BLOQUEO
+                # es_jefe ya debe estar definido arriba en render_matriz
+                bloqueado = False if es_jefe else (en_db or tiene_posterior_en_db)
 
-                # LLAVE DINÁMICA: Esto arregla el problema de los checks que no se borran
-                key_chx = f"v_chk_{p['id']}_{h}_{'1' if existe else '0'}"
+                # 3. RENDERIZADO CON LLAVE DINÁMICA
+                key_chx = f"v_final_{p['id']}_{h}_{'1' if existe else '0'}"
 
                 if cols[i+1].checkbox("", key=key_chx, value=existe, disabled=bloqueado, label_visibility="collapsed"):
                     if not existe:
-                        # Cascada visual
+                        # ACCIÓN: MARCAR (Cascada hacia atrás en memoria)
                         for idx_p in range(i + 1):
                             h_p = HITOS_LIST[idx_p]
-                            if not any(d["pid"] == p['id'] and d["hito"] == h_p for d in st.session_state.cambios_pendientes) and segs[(segs['producto_id'] == p['id']) & (segs['hito'] == h_p)].empty:
-                                st.session_state.cambios_pendientes.append({"pid": p['id'], "hito": h_p})
+                            # Marcamos si no está en DB y no está ya en memoria
+                            if segs[(segs['producto_id'] == p['id']) & (segs['hito'] == h_p)].empty:
+                                if not any(d["pid"] == p['id'] and d["hito"] == h_p for d in st.session_state.cambios_pendientes):
+                                    st.session_state.cambios_pendientes.append({"pid": p['id'], "hito": h_p})
                         st.rerun()
                 else:
-                    if existe: # Acción de Desmarcar
+                    if existe:
+                        # ACCIÓN: DESMARCAR (Solo permitido si bloqueado es False)
                         if idx_mem is not None:
                             st.session_state.cambios_pendientes.pop(idx_mem)
-                        elif en_db and es_jefe_m:
+                        elif en_db and es_jefe:
+                            # Borrado real en Supabase para el Admin
                             supabase.table("seguimiento").delete().eq("producto_id", p['id']).eq("hito", h).execute()
+                            # Actualizamos Gantt/Métricas inmediatamente
                             from base_datos import sincronizar_avances_estructural
-                            sincronizar_avances_estructural(df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo'])
+                            p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
+                            sincronizar_avances_estructural(p_cod)
                         st.rerun()
-
             # Notas
             n_db = segs[(segs['producto_id'] == p['id']) & (segs['hito'] == HITOS_LIST[0])]['observaciones'].iloc[0] if not segs[(segs['producto_id'] == p['id']) & (segs['hito'] == HITOS_LIST[0])].empty else ""
             n_act = st.session_state.notas_pendientes.get(str(p['id']), n_db if pd.notnull(n_db) else "")
