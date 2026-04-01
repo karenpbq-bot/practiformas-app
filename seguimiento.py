@@ -173,13 +173,18 @@ def mostrar(supervisor_id=None, rol=None):
     # --- F. FILA DE ACCIONES ---
     st.divider()
     
-    # 1. Diagnóstico de Rol (Aseguramos que reconozca 'admin' o 'Gerente')
-    rol_detectado = str(st.session_state.get('rol', 'VACÍO')).strip().lower()
-    es_jefe = rol_detectado in ["admin", "gerente", "administrador"]
-
-    # 2. Columnas dinámicas
-    cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2]) if es_jefe else st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
+    # Capturamos el rol y lo limpiamos de espacios o mayúsculas
+    rol_sesion = str(st.session_state.get('rol', 'Supervisor')).strip().lower()
     
+    # LISTA MAESTRA DE PERMISOS (Aquí incluimos todas las variantes posibles)
+    es_jefe = rol_sesion in ["admin", "administrador", "Gerente"]
+
+    # Forzamos la creación de 7 columnas si es jefe
+    if es_jefe:
+        cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2])
+    else:
+        cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
+       
     f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
     cols_acc[1].metric("Av. Parcial", f"{p_par}%")
     cols_acc[2].metric("Av. Global", f"{p_tot}%")
@@ -228,8 +233,8 @@ def mostrar(supervisor_id=None, rol=None):
 
     # --- G. MATRIZ ---
     def render_matriz(df_r):
-        rol_usuario = str(st.session_state.get('rol', '')).strip().lower()
-        es_jefe_m = rol_usuario in ["admin", "gerente", "administrador"]
+        # Usamos el permiso que ya validamos en la sección F
+        es_jefe_m = es_jefe
 
         for _, p in df_r.iterrows():
             cols = st.columns([2.5] + [0.7]*8 + [1.5])
