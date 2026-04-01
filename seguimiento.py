@@ -173,7 +173,11 @@ def mostrar(supervisor_id=None):
     act2.metric("Av. Parcial", f"{p_par}%")
     act3.metric("Av. Global", f"{p_tot}%")
     
-    if act4.button("💾 Guardar Avance", type="primary", use_container_width=True, key="btn_guardar_final"):
+    # NUEVO BOTÓN DE REFRESCO
+    if act4.button("🔄 Refrescar", use_container_width=True):
+        st.rerun()
+
+    if act5.button("💾 Guardar Avance", type="primary", use_container_width=True, key="btn_guardar_final"):
         f_hoy = f_reg.strftime("%d/%m/%Y")
         try:
             # 1. Notas... (Tu lógica de notas)
