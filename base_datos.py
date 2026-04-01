@@ -200,12 +200,23 @@ def sincronizar_avances_estructural(codigo_p):
         lote_conteo = []
         for pid in ids_prods:
             for hito_nom, peso_val in pesos_dict.items():
-                esta_logrado = 1 if not df_seg[(df_seg['producto_id'] == pid) & (df_seg['hito'] == hito_nom)].empty else 0
+                # --- CAMBIO CRÍTICO: Verificamos si el hito existe REALMENTE en la DB ---
+                existe_en_seg = not df_seg[(df_seg['producto_id'] == pid) & (df_seg['hito'] == hito_nom)].empty
+                
+                # Si existe es 1, si se borró es 0
+                esta_logrado = 1 if existe_en_seg else 0 
+                
                 lote_conteo.append({
-                    "codigo_proyecto": codigo_p, "producto_id": pid, "hito": hito_nom,
-                    "logrado": esta_logrado, "valor_porcentual": peso_val
+                    "codigo_proyecto": codigo_p, 
+                    "producto_id": pid, 
+                    "hito": hito_nom,
+                    "logrado": esta_logrado, 
+                    # Si no está logrado (fue borrado), el valor porcentual vuelve a 0
+                    "valor_porcentual": peso_val if esta_logrado == 1 else 0
                 })
+        
         if lote_conteo:
+            # El upsert ahora sobreescribirá con 0 los hitos que hayas borrado
             supabase.table("productos_avance_valor").upsert(lote_conteo, on_conflict="producto_id, hito").execute()
 
         # D. Consolidación Horizontal para Gantt y Reporte Matricial
