@@ -168,27 +168,33 @@ def mostrar(supervisor_id=None):
 
     # --- F. FILA DE ACCIONES ---
     st.divider()
-    act1, act2, act3, act4, act5, act6 = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
-    f_reg = act1.date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
-    act2.metric("Av. Parcial", f"{p_par}%")
-    act3.metric("Av. Global", f"{p_tot}%")
+    rol_user = str(st.session_state.get('rol', '')).lower().strip()
+    es_jefe = rol_user in ["admin", "administrador", "gerente"]
+
+    # Ajuste de columnas dinámicas
+    cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2]) if es_jefe else st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
     
-    # BOTÓN NUEVO
-    if act4.button("🔄 Refrescar", use_container_width=True):
+    f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
+    cols_acc[1].metric("Av. Parcial", f"{p_par}%")
+    cols_acc[2].metric("Av. Global", f"{p_tot}%")
+    
+    if cols_acc[3].button("🔄 Refrescar", use_container_width=True):
+        st.cache_data.clear() # Limpia caché de base_datos.py para ver cambios reales
         st.rerun()
 
-    if act5.button("💾 Guardar Avance", type="primary", use_container_width=True, key="btn_guardar_final"):
+    # --- BOTÓN GUARDAR (Manteniendo tu lógica original) ---
+    if cols_acc[4].button("💾 Guardar", type="primary", use_container_width=True):
         f_hoy = f_reg.strftime("%d/%m/%Y")
         try:
-            # 1. Notas... (Tu lógica de notas)
-            
-            # 2. Guardar Seguimiento
+            # 1. Procesar cambios en memoria
             df_cp = pd.DataFrame(st.session_state.cambios_pendientes).rename(columns={'pid': 'producto_id'}) if st.session_state.cambios_pendientes else pd.DataFrame(columns=['producto_id', 'hito'])
             df_total = pd.concat([segs[['producto_id', 'hito']], df_cp[['producto_id', 'hito']]]).drop_duplicates()
             lote_save = []
+            
             for pid in prods_all['id'].tolist():
                 hitos_p = df_total[df_total['producto_id'] == pid]['hito'].tolist()
                 if hitos_p:
+                    # Regla de cascada al guardar
                     m_idx = max([HITOS_LIST.index(h) for h in hitos_p if h in HITOS_LIST])
                     for i in range(m_idx + 1):
                         if segs[(segs['producto_id'] == pid) & (segs['hito'] == HITOS_LIST[i])].empty:
@@ -197,25 +203,35 @@ def mostrar(supervisor_id=None):
             if lote_save:
                 supabase.table("seguimiento").upsert(lote_save, on_conflict="producto_id, hito").execute()
 
-            # --- ACTUALIZACIÓN DE MÉTRICAS Y GANTT ---
-            try:
-                from base_datos import sincronizar_avances_estructural
-                p_data_obj = df_p_all[df_p_all['id'] == id_p].iloc[0]
-                sincronizar_avances_estructural(p_data_obj['codigo'])
-            except Exception as e:
-                st.warning(f"Seguimiento guardado, pero el Gantt no se actualizó: {e}")
+            # 2. Sincronizar Gantt
+            from base_datos import sincronizar_avances_estructural
+            p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
+            sincronizar_avances_estructural(p_cod)
             
-            # ELIMINAR CAMBIOS Y REFRESCAR (Siempre se hace)
+            # 3. Limpiar y refrescar
             st.session_state.cambios_pendientes, st.session_state.notas_pendientes = [], {}
             st.success("✅ Seguimiento guardado.")
-            st.rerun() # <--- IMPORTANTE: Aquí refresca toda la data para el Gantt
-        
-        except Exception as e: 
-            st.error(f"Error crítico: {e}")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error al guardar: {e}")
 
-    if act5.button("🗑️ Descartar", type="secondary", use_container_width=True, key="btn_des_final"):
-        st.session_state.cambios_pendientes, st.session_state.notas_pendientes = [], {}
+    # --- BOTÓN DESCARTAR ---
+    if cols_acc[5].button("🚫 Descartar Cambios", help="Limpia lo marcado en esta sesión", use_container_width=True):
+        st.session_state.cambios_pendientes = []
         st.rerun()
+
+    # --- BOTÓN SECRETO PARA JEFES (Reseteo) ---
+    if es_jefe:
+        if cols_acc[6].button("🔥 Borrar Todo", type="secondary", help="Resetea el avance a 0%"):
+            ids_p = prods_all['id'].tolist()
+            # Borrado físico en Supabase
+            supabase.table("seguimiento").delete().in_("producto_id", ids_p).execute()
+            # Forzar motor estructural a poner todo en 0
+            from base_datos import sincronizar_avances_estructural
+            p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
+            sincronizar_avances_estructural(p_cod)
+            st.success("Proyecto reseteado correctamente.")
+            st.rerun()
 
     # --- G. MATRIZ ---
     st.markdown('<div class="sticky-top">', unsafe_allow_html=True)
