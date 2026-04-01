@@ -173,31 +173,47 @@ def mostrar(supervisor_id=None, rol=None):
     # --- F. FILA DE ACCIONES ---
     st.divider()
     
-    # 1. DIAGNÓSTICO: Vamos a ver qué rol está detectando la App realmente
+    # 1. Diagnóstico de Rol (Aseguramos que reconozca 'admin' o 'Gerente')
     rol_detectado = str(st.session_state.get('rol', 'VACÍO')).strip().lower()
-    
-    # Imprime esto temporalmente para que me digas qué sale:
-    # st.write(f"DEBUG: Tu rol es '{rol_detectado}'") 
-
-    # 2. DEFINICIÓN DE JEFE (Añadimos 'administrador' por si acaso)
     es_jefe = rol_detectado in ["admin", "gerente", "administrador"]
 
-    # 3. COLUMNAS: Forzamos 7 columnas para que el botón tenga su espacio
-    cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2])
+    # 2. Columnas dinámicas
+    cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2]) if es_jefe else st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
     
     f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
     cols_acc[1].metric("Av. Parcial", f"{p_par}%")
     cols_acc[2].metric("Av. Global", f"{p_tot}%")
     
     if cols_acc[3].button("🔄 Refrescar", use_container_width=True):
-        st.cache_data.clear() # ESTO limpia las casillas vacías erróneas
+        st.cache_data.clear() 
         st.rerun()
 
+    # --- LÓGICA DE GUARDADO (Recuperada del 'pass') ---
     if cols_acc[4].button("💾 Guardar", type="primary", use_container_width=True):
-        # ... (Tu lógica de guardado actual que tienes en el archivo)
-        pass 
+        f_hoy = f_reg.strftime("%d/%m/%Y")
+        try:
+            if st.session_state.cambios_pendientes:
+                lote_save = []
+                for cambio in st.session_state.cambios_pendientes:
+                    lote_save.append({"producto_id": cambio['pid'], "hito": cambio['hito'], "fecha": f_hoy})
+                
+                # Upsert en Supabase
+                supabase.table("seguimiento").upsert(lote_save, on_conflict="producto_id, hito").execute()
+                
+                # Sincronización con Gantt
+                from base_datos import sincronizar_avances_estructural
+                p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
+                sincronizar_avances_estructural(p_cod)
+                
+                st.session_state.cambios_pendientes = []
+                st.success("✅ Avance guardado.")
+                st.rerun()
+            else:
+                st.info("No hay cambios pendientes por guardar.")
+        except Exception as e:
+            st.error(f"Error al guardar: {e}")
 
-    if cols_acc[5].button("🚫 Descartar Cambios", use_container_width=True):
+    if cols_acc[5].button("🚫 Descartar", use_container_width=True):
         st.session_state.cambios_pendientes = []
         st.rerun()
 
@@ -207,12 +223,13 @@ def mostrar(supervisor_id=None, rol=None):
             supabase.table("seguimiento").delete().in_("producto_id", ids_p).execute()
             from base_datos import sincronizar_avances_estructural
             sincronizar_avances_estructural(df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo'])
+            st.warning("⚠️ Todo el historial de este proyecto ha sido borrado.")
             st.rerun()
 
-    # --- G. MATRIZ (Corregida para Admin) ---
+    # --- G. MATRIZ ---
     def render_matriz(df_r):
         rol_usuario = str(st.session_state.get('rol', '')).strip().lower()
-        es_jefe = rol_usuario in ["admin", "gerente"]
+        es_jefe_m = rol_usuario in ["admin", "gerente", "administrador"]
 
         for _, p in df_r.iterrows():
             cols = st.columns([2.5] + [0.7]*8 + [1.5])
@@ -223,41 +240,43 @@ def mostrar(supervisor_id=None, rol=None):
                 idx_mem = next((idx for idx, d in enumerate(st.session_state.cambios_pendientes) if d["pid"] == p['id'] and d["hito"] == h), None)
                 existe = en_db or (idx_mem is not None)
                 
-                # REGLA DE BLOQUEO PARA ADMIN:
                 tiene_post_db = not segs[(segs['producto_id'] == p['id']) & (segs['hito'].isin(HITOS_LIST[i+1:]))].empty
-                bloqueado = False if es_jefe else (en_db or tiene_post_db)
+                bloqueado = False if es_jefe_m else (en_db or tiene_post_db)
 
-                # Usamos una KEY dinámica para forzar el refresco visual
+                # LLAVE DINÁMICA: Esto arregla el problema de los checks que no se borran
                 key_chx = f"v_chk_{p['id']}_{h}_{'1' if existe else '0'}"
 
                 if cols[i+1].checkbox("", key=key_chx, value=existe, disabled=bloqueado, label_visibility="collapsed"):
                     if not existe:
+                        # Cascada visual
                         for idx_p in range(i + 1):
                             h_p = HITOS_LIST[idx_p]
                             if not any(d["pid"] == p['id'] and d["hito"] == h_p for d in st.session_state.cambios_pendientes) and segs[(segs['producto_id'] == p['id']) & (segs['hito'] == h_p)].empty:
                                 st.session_state.cambios_pendientes.append({"pid": p['id'], "hito": h_p})
                         st.rerun()
                 else:
-                    if existe: # DESMARCAR
+                    if existe: # Acción de Desmarcar
                         if idx_mem is not None:
                             st.session_state.cambios_pendientes.pop(idx_mem)
-                        elif en_db and es_jefe:
+                        elif en_db and es_jefe_m:
                             supabase.table("seguimiento").delete().eq("producto_id", p['id']).eq("hito", h).execute()
                             from base_datos import sincronizar_avances_estructural
                             sincronizar_avances_estructural(df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo'])
                         st.rerun()
 
-            # Notas (UNA SOLA VEZ)
+            # Notas
             n_db = segs[(segs['producto_id'] == p['id']) & (segs['hito'] == HITOS_LIST[0])]['observaciones'].iloc[0] if not segs[(segs['producto_id'] == p['id']) & (segs['hito'] == HITOS_LIST[0])].empty else ""
             n_act = st.session_state.notas_pendientes.get(str(p['id']), n_db if pd.notnull(n_db) else "")
             nueva = cols[-1].text_input("N", value=n_act, key=f"nt_{p['id']}", label_visibility="collapsed")
             if nueva != n_act: st.session_state.notas_pendientes[str(p['id'])] = nueva
 
-    # Renderizado final
+    # RENDERIZADO FINAL
     if agrupar_por != "Sin grupo":
         campo = "ubicacion" if agrupar_por == "Ubicación" else "tipo"
         for n, g in df_f.groupby(campo):
             st.markdown(f"**📂 {agrupar_por}: {n}**")
             render_matriz(g)
-    else: render_matriz(df_f)
+    else: 
+        render_matriz(df_f)
+    
     st.markdown('</div>', unsafe_allow_html=True)
