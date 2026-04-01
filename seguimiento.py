@@ -173,66 +173,59 @@ def mostrar(supervisor_id=None, rol=None):
 
     p_tot, p_par = calc_avance(prods_all, segs), calc_avance(df_f, segs)
 
-    # --- F. FILA DE ACCIONES ---
+    # --- F. FILA DE ACCIONES (RECONSTRUCCIÓN TOTAL) ---
     st.divider()
     
-    # 1. Definimos quién es Jefe (admin o gerente)
-    # Usamos el rol de la sesión que ya limpiamos arriba
-    rol_actual = str(st.session_state.get('rol', 'supervisor')).strip().lower()
-    es_jefe = rol_actual in ["admin", "gerente", "administrador"]
+    # 1. Identificación Blindada
+    rol_final = str(rol if rol else st.session_state.get('rol', 'Supervisor')).strip().lower()
+    es_jefe = rol_final in ["admin", "gerente", "administrador"]
 
-    # 2. Creamos las columnas (7 si es jefe para que aparezca el botón de Borrar)
+    # 2. Definición de Columnas (7 espacios obligatorios para Admin/Gerente)
+    # Ajustamos los pesos [1.5, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9] para que no se amontonen
     if es_jefe:
-        cols_acc = st.columns([1.5, 0.8, 0.8, 1, 1, 1, 1])
+        cols_acc = st.columns([1.5, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9])
     else:
         cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
         
-    # 3. Elementos de la fila
-    f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
+    # Col 0: Fecha
+    f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_v_final")
+    
+    # Col 1 y 2: Métricas
     cols_acc[1].metric("Av. Parcial", f"{p_par}%")
     cols_acc[2].metric("Av. Global", f"{p_tot}%")
     
-    # 4. Botón Refrescar (Fundamental para ver cambios)
-    if cols_acc[3].button("🔄 Refrescar", use_container_width=True, key="btn_refresh_v1"):
+    # Col 3: REFRESCAR (Aparecerá ahora sí)
+    if cols_acc[3].button("🔄 Refrescar", use_container_width=True, key="btn_ref_v_final"):
         st.cache_data.clear() 
         st.rerun()
 
-    # --- LÓGICA DE GUARDADO (Recuperada del 'pass') ---
-    if cols_acc[4].button("💾 Guardar", type="primary", use_container_width=True):
+    # Col 4: GUARDAR
+    if cols_acc[4].button("💾 Guardar", type="primary", use_container_width=True, key="btn_save_v_final"):
         f_hoy = f_reg.strftime("%d/%m/%Y")
-        try:
-            if st.session_state.cambios_pendientes:
-                lote_save = []
-                for cambio in st.session_state.cambios_pendientes:
-                    lote_save.append({"producto_id": cambio['pid'], "hito": cambio['hito'], "fecha": f_hoy})
-                
-                # Upsert en Supabase
-                supabase.table("seguimiento").upsert(lote_save, on_conflict="producto_id, hito").execute()
-                
-                # Sincronización con Gantt
-                from base_datos import sincronizar_avances_estructural
-                p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
-                sincronizar_avances_estructural(p_cod)
-                
-                st.session_state.cambios_pendientes = []
-                st.success("✅ Avance guardado.")
-                st.rerun()
-            else:
-                st.info("No hay cambios pendientes por guardar.")
-        except Exception as e:
-            st.error(f"Error al guardar: {e}")
+        if st.session_state.cambios_pendientes:
+            lote = [{"producto_id": c['pid'], "hito": c['hito'], "fecha": f_hoy} for c in st.session_state.cambios_pendientes]
+            supabase.table("seguimiento").upsert(lote, on_conflict="producto_id, hito").execute()
+            from base_datos import sincronizar_avances_estructural
+            p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
+            sincronizar_avances_estructural(p_cod)
+            st.session_state.cambios_pendientes = []
+            st.success("✅ Guardado")
+            st.rerun()
 
-    if cols_acc[5].button("🚫 Descartar", use_container_width=True):
+    # Col 5: DESCARTAR
+    if cols_acc[5].button("🚫 Descartar", use_container_width=True, key="btn_desc_v_final"):
         st.session_state.cambios_pendientes = []
         st.rerun()
 
+    # Col 6: BORRAR TODO (Solo para Jefes)
     if es_jefe:
-        if cols_acc[6].button("🔥 Borrar Todo", type="secondary", use_container_width=True):
+        if cols_acc[6].button("🔥 Borrar Todo", type="secondary", use_container_width=True, key="btn_burn_v_final"):
             ids_p = prods_all['id'].tolist()
             supabase.table("seguimiento").delete().in_("producto_id", ids_p).execute()
             from base_datos import sincronizar_avances_estructural
-            sincronizar_avances_estructural(df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo'])
-            st.warning("⚠️ Todo el historial de este proyecto ha sido borrado.")
+            p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
+            sincronizar_avances_estructural(p_cod)
+            st.warning("⚠️ Historial reseteado")
             st.rerun()
 
     # --- G. MATRIZ ---
