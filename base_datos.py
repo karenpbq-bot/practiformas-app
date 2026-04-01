@@ -23,7 +23,12 @@ def inicializar_bd():
 def validar_usuario(usuario, clave):
     supabase = conectar()
     res = supabase.table("usuarios").select("*").eq("nombre_usuario", usuario).eq("contrasena", clave).execute()
-    return res.data[0] if res.data else None
+    if res.data:
+        u = res.data[0]
+        # AGREGA ESTA LÍNEA para asegurar que el rol sea siempre limpio
+        u['rol'] = str(u.get('rol', 'Supervisor')).strip()
+        return u
+    return None
 
 def obtener_supervisores():
     try:
