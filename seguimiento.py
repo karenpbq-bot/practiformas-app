@@ -18,9 +18,12 @@ HITOS_LIST = list(MAPEO_HITOS.keys())
 # 2. INTERFAZ PRINCIPAL
 # =========================================================
 def mostrar(supervisor_id=None, rol=None):
-    # --- NUEVO: Capturar el rol enviado desde app_principal ---
+    # Forzamos que el rol se guarde y se limpie de espacios
     if rol:
-        st.session_state.rol = rol
+        st.session_state.rol = str(rol).strip().lower()
+    
+    # Diagnóstico secreto (Descomenta la línea de abajo si el botón sigue sin salir)
+    # st.write(f"DEBUG: Rol en seguimiento es: '{st.session_state.get('rol')}'")
         
     # --- A. MEMORIA TEMPORAL ---
     if 'cambios_pendientes' not in st.session_state:
@@ -173,25 +176,24 @@ def mostrar(supervisor_id=None, rol=None):
     # --- F. FILA DE ACCIONES ---
     st.divider()
     
-    # SOLUCIÓN: Usamos el 'rol' que entra directamente por la función mostrar(rol=...)
-    # Si por alguna razón 'rol' llega None, buscamos en la sesión como respaldo.
-    rol_final = str(rol if rol else st.session_state.get('rol', 'Supervisor')).strip().lower()
-    
-    # LISTA MAESTRA DE PODER (Estandarizada según tu tabla de Supabase)
-    es_jefe = rol_final in ["admin", "gerente", "administrador"]
+    # 1. Definimos quién es Jefe (admin o gerente)
+    # Usamos el rol de la sesión que ya limpiamos arriba
+    rol_actual = str(st.session_state.get('rol', 'supervisor')).strip().lower()
+    es_jefe = rol_actual in ["admin", "gerente", "administrador"]
 
-    # DEFINICIÓN ÚNICA DE COLUMNAS (Asegúrate de borrar cualquier otra definición de cols_acc)
+    # 2. Creamos las columnas (7 si es jefe para que aparezca el botón de Borrar)
     if es_jefe:
-        cols_acc = st.columns([1.5, 0.8, 0.8, 1, 1, 1, 1]) # 7 columnas para Admin
+        cols_acc = st.columns([1.5, 0.8, 0.8, 1, 1, 1, 1])
     else:
-        cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2]) # 6 columnas para Supervisor
+        cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
         
-    # 4. DATOS DE CABECERA
+    # 3. Elementos de la fila
     f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
     cols_acc[1].metric("Av. Parcial", f"{p_par}%")
     cols_acc[2].metric("Av. Global", f"{p_tot}%")
     
-    if cols_acc[3].button("🔄 Refrescar", use_container_width=True):
+    # 4. Botón Refrescar (Fundamental para ver cambios)
+    if cols_acc[3].button("🔄 Refrescar", use_container_width=True, key="btn_refresh_v1"):
         st.cache_data.clear() 
         st.rerun()
 
