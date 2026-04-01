@@ -173,18 +173,19 @@ def mostrar(supervisor_id=None, rol=None):
     # --- F. FILA DE ACCIONES ---
     st.divider()
     
-    # Capturamos el rol y lo limpiamos de espacios o mayúsculas
+    # 1. Limpiamos el rol (minúsculas y sin espacios)
     rol_sesion = str(st.session_state.get('rol', 'Supervisor')).strip().lower()
     
-    # LISTA MAESTRA DE PERMISOS (Aquí incluimos todas las variantes posibles)
-    es_jefe = rol_sesion in ["admin", "Administrador", "Gerente"]
+    # 2. LISTA DE PERMISOS (Todo en minúsculas para que coincida con .lower())
+    es_jefe = rol_sesion in ["admin", "gerente", "administrador"]
 
-    # Forzamos la creación de 7 columnas si es jefe
+    # 3. DEFINICIÓN ÚNICA DE COLUMNAS (Aquí ya no hay duplicados)
     if es_jefe:
         cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2])
     else:
         cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
-       
+        
+    # 4. DATOS DE CABECERA
     f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
     cols_acc[1].metric("Av. Parcial", f"{p_par}%")
     cols_acc[2].metric("Av. Global", f"{p_tot}%")
