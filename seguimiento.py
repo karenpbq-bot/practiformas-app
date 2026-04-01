@@ -172,11 +172,18 @@ def mostrar(supervisor_id=None, rol=None):
 
     # --- F. FILA DE ACCIONES ---
     st.divider()
-    # Normalizamos para que no importe si es 'admin' o 'Admin'
-    rol_user = str(st.session_state.get('rol', '')).strip().lower()
-    es_jefe = rol_user in ["admin", "gerente"]
+    
+    # 1. DIAGNÓSTICO: Vamos a ver qué rol está detectando la App realmente
+    rol_detectado = str(st.session_state.get('rol', 'VACÍO')).strip().lower()
+    
+    # Imprime esto temporalmente para que me digas qué sale:
+    # st.write(f"DEBUG: Tu rol es '{rol_detectado}'") 
 
-    cols_acc = st.columns([1.5, 0.8, 0.8, 1, 1, 1, 1]) if es_jefe else st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
+    # 2. DEFINICIÓN DE JEFE (Añadimos 'administrador' por si acaso)
+    es_jefe = rol_detectado in ["admin", "gerente", "administrador"]
+
+    # 3. COLUMNAS: Forzamos 7 columnas para que el botón tenga su espacio
+    cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2])
     
     f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
     cols_acc[1].metric("Av. Parcial", f"{p_par}%")
