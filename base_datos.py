@@ -113,11 +113,13 @@ def eliminar_proyecto_completo(id_proyecto):
 # 4. GESTIÓN DE PRODUCTOS Y SEGUIMIENTO
 # =========================================================
 
+@st.cache_data(ttl=60) # <--- AGREGA ESTA LÍNEA (mantiene datos 60 segundos)
 def obtener_productos_por_proyecto(id_proyecto):
     supabase = conectar()
     res = supabase.table("productos").select("*").eq("proyecto_id", id_proyecto).order("codigo_etiqueta").execute()
     return pd.DataFrame(res.data)
 
+@st.cache_data(ttl=30) # <--- AGREGA ESTA LÍNEA (mantiene seguimiento 30 segundos)
 def obtener_seguimiento(id_producto):
     supabase = conectar()
     res = supabase.table("seguimiento").select("*").eq("producto_id", id_producto).execute()
