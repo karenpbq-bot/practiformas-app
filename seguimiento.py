@@ -173,17 +173,18 @@ def mostrar(supervisor_id=None, rol=None):
     # --- F. FILA DE ACCIONES ---
     st.divider()
     
-    # 1. Limpiamos el rol (minúsculas y sin espacios)
-    rol_sesion = str(st.session_state.get('rol', 'Supervisor')).strip().lower()
+    # SOLUCIÓN: Usamos el 'rol' que entra directamente por la función mostrar(rol=...)
+    # Si por alguna razón 'rol' llega None, buscamos en la sesión como respaldo.
+    rol_final = str(rol if rol else st.session_state.get('rol', 'Supervisor')).strip().lower()
     
-    # 2. LISTA DE PERMISOS (Todo en minúsculas para que coincida con .lower())
-    es_jefe = rol_sesion in ["admin", "gerente", "administrador"]
+    # LISTA MAESTRA DE PODER (Estandarizada según tu tabla de Supabase)
+    es_jefe = rol_final in ["admin", "gerente", "administrador"]
 
-    # 3. DEFINICIÓN ÚNICA DE COLUMNAS (Aquí ya no hay duplicados)
+    # DEFINICIÓN ÚNICA DE COLUMNAS (Asegúrate de borrar cualquier otra definición de cols_acc)
     if es_jefe:
-        cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2, 1.2])
+        cols_acc = st.columns([1.5, 0.8, 0.8, 1, 1, 1, 1]) # 7 columnas para Admin
     else:
-        cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
+        cols_acc = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2]) # 6 columnas para Supervisor
         
     # 4. DATOS DE CABECERA
     f_reg = cols_acc[0].date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
