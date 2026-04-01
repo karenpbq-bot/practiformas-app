@@ -168,12 +168,12 @@ def mostrar(supervisor_id=None):
 
     # --- F. FILA DE ACCIONES ---
     st.divider()
-    act1, act2, act3, act4, act5 = st.columns([1.5, 1, 1, 1.3, 1.3])
+    act1, act2, act3, act4, act5, act6 = st.columns([1.5, 0.8, 0.8, 1.2, 1.2, 1.2])
     f_reg = act1.date_input("Fecha Registro", datetime.now(), format="DD/MM/YYYY", key="f_reg_u")
     act2.metric("Av. Parcial", f"{p_par}%")
     act3.metric("Av. Global", f"{p_tot}%")
     
-    # NUEVO BOTÓN DE REFRESCO
+    # BOTÓN NUEVO
     if act4.button("🔄 Refrescar", use_container_width=True):
         st.rerun()
 
@@ -266,34 +266,60 @@ def mostrar(supervisor_id=None):
     st.markdown('<div class="scroll-area">', unsafe_allow_html=True)
     
     def render_matriz(df_r):
-        rol = st.session_state.get('rol', 'Supervisor')
+        # 1. Definir quién tiene permiso para borrar (Admin y Gerente)
+        rol_actual = st.session_state.get('rol', 'Supervisor')
+        tiene_permiso_borrar = rol_actual in ["admin", "Administrador", "Gerente"]
+
         for _, p in df_r.iterrows():
             cols = st.columns([2.5] + [0.7]*8 + [1.5])
-            # Mostramos el Código de Etiqueta primero para identificación rápida
-            id_etiqueta = p.get('codigo_etiqueta', 'S/N')
             cols[0].write(f"{p['ubicacion']} | {p['tipo']} | **{p['ml']} ML**")
+            
             for i, h in enumerate(HITOS_LIST):
                 en_db = not segs[(segs['producto_id'] == p['id']) & (segs['hito'] == h)].empty
                 idx_mem = next((idx for idx, d in enumerate(st.session_state.cambios_pendientes) if d["pid"] == p['id'] and d["hito"] == h), None)
                 existe = en_db or (idx_mem is not None)
+                
+                # REGLA DE BLOQUEO: 
+                # Si es Admin/Gerente, nunca se bloquea (puede borrar todo).
+                # Si es Supervisor, se bloquea lo que ya está en DB o si hay hitos posteriores.
                 tiene_post_db = not segs[(segs['producto_id'] == p['id']) & (segs['hito'].isin(HITOS_LIST[i+1:]))].empty
-                bloqueado = (en_db and rol == "Supervisor") or tiene_post_db
+                bloqueado = (en_db and not tiene_permiso_borrar) or (tiene_post_db and not tiene_permiso_borrar)
 
-                if cols[i+1].checkbox("", key=f"c_{p['id']}_{h}", value=existe, disabled=bloqueado, label_visibility="collapsed"):
-                    if not existe:
-                        st.session_state.cambios_pendientes.append({"pid": p['id'], "hito": h})
+                valor_check = cols[i+1].checkbox("", key=f"c_{p['id']}_{h}", value=existe, disabled=bloqueado, label_visibility="collapsed")
+                
+                # --- LÓGICA DE INTERACCIÓN ---
+                if valor_check != existe:
+                    if valor_check: # ACCIÓN: MARCAR
+                        # REGLA DE CASCADA: Marcamos este y todos los anteriores en la memoria
+                        for idx_previo in range(i + 1):
+                            h_previo = HITOS_LIST[idx_previo]
+                            # Si no está en DB ni en cambios pendientes, lo agregamos
+                            ya_en_db = not segs[(segs['producto_id'] == p['id']) & (segs['hito'] == h_previo)].empty
+                            ya_en_memoria = any(d["pid"] == p['id'] and d["hito"] == h_previo for d in st.session_state.cambios_pendientes)
+                            
+                            if not ya_en_db and not ya_en_memoria:
+                                st.session_state.cambios_pendientes.append({"pid": p['id'], "hito": h_previo})
                         st.rerun()
-                else:
-                    if idx_mem is not None:
-                        st.session_state.cambios_pendientes.pop(idx_mem)
-                        st.rerun()
-                    elif en_db and not bloqueado:
-                        t_m = any(d["pid"] == p['id'] and d["hito"] in HITOS_LIST[i+1:] for d in st.session_state.cambios_pendientes)
-                        if not tiene_post_db and not t_m:
-                            supabase.table("seguimiento").delete().eq("producto_id", p['id']).eq("hito", h).execute()
+                    
+                    else: # ACCIÓN: DESMARCAR (BORRAR)
+                        if idx_mem is not None:
+                            # Si estaba solo en memoria (sin guardar), lo quitamos
+                            st.session_state.cambios_pendientes.pop(idx_mem)
                             st.rerun()
-                        else: st.error("Borre posteriores primero")
+                        elif en_db and tiene_permiso_borrar:
+                            # SI YA ESTABA EN BASE DE DATOS: Borrado real (Solo Admin/Gerente)
+                            try:
+                                supabase.table("seguimiento").delete().eq("producto_id", p['id']).eq("hito", h).execute()
+                                # Sincronizamos el Gantt para que baje el porcentaje
+                                from base_datos import sincronizar_avances_estructural
+                                p_cod = df_p_all[df_p_all['id'] == id_p].iloc[0]['codigo']
+                                sincronizar_avances_estructural(p_cod)
+                                st.success(f"Hito {h} eliminado de la base de datos.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al borrar: {e}")
 
+            # Sección de Notas (Se mantiene igual)
             n_db = segs[(segs['producto_id'] == p['id']) & (segs['hito'] == HITOS_LIST[0])]['observaciones'].iloc[0] if not segs[(segs['producto_id'] == p['id']) & (segs['hito'] == HITOS_LIST[0])].empty else ""
             n_act = st.session_state.notas_pendientes.get(str(p['id']), n_db if pd.notnull(n_db) else "")
             nueva = cols[-1].text_input("N", value=n_act, key=f"n_{p['id']}", label_visibility="collapsed")
