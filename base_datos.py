@@ -26,7 +26,7 @@ def validar_usuario(usuario, clave):
     if res.data:
         u = res.data[0]
         # Limpieza estándar: quita espacios laterales
-        u['rol'] = str(u.get('rol', 'Supervisor')).strip()
+        u['rol'] = str(u.get('rol', 'Supervisor')).lower()
         return u
     return None
 
