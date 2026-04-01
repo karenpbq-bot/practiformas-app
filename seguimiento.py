@@ -177,7 +177,7 @@ def mostrar(supervisor_id=None, rol=None):
     rol_sesion = str(st.session_state.get('rol', 'Supervisor')).strip().lower()
     
     # LISTA MAESTRA DE PERMISOS (Aquí incluimos todas las variantes posibles)
-    es_jefe = rol_sesion in ["admin", "administrador", "Gerente"]
+    es_jefe = rol_sesion in ["admin", "Administrador", "Gerente"]
 
     # Forzamos la creación de 7 columnas si es jefe
     if es_jefe:
