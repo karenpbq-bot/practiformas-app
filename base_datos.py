@@ -25,8 +25,11 @@ def validar_usuario(usuario, clave):
     res = supabase.table("usuarios").select("*").eq("nombre_usuario", usuario).eq("contrasena", clave).execute()
     if res.data:
         u = res.data[0]
-        # Limpieza estándar: quita espacios laterales
-        u['rol'] = str(u.get('rol', 'Supervisor')).lower()
+        # Forzamos que el rol sea siempre minúsculas y sin espacios
+        u['rol'] = str(u.get('rol', 'supervisor')).strip().lower()
+        # Si el rol es "administrador", lo convertimos internamente a "admin"
+        if u['rol'] == "administrador":
+            u['rol'] = "admin"
         return u
     return None
 
